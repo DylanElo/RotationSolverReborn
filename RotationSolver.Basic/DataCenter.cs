@@ -2815,6 +2815,16 @@ internal static class DataCenter
 	public static bool BMRDebugTimelineTbFunc { get; set; }
 	public static bool BMRDebugHintsRwFunc { get; set; }
 	public static bool BMRDebugHintsTbFunc { get; set; }
+	/// <summary>
+	/// Whether the installed BossModReborn build registers each Timeline.NextDowntime/Vulnerable
+	/// IPC method at all. False here means the endpoint is missing - a stale or mismatched
+	/// BossModReborn build - not that the current encounter simply has no such window; that
+	/// second case still reads DowntimeIn/VulnerableIn as unknown, but with this true.
+	/// </summary>
+	public static bool BMRDebugTimelineDowntimeFunc { get; set; }
+	public static bool BMRDebugTimelineDowntimeEndFunc { get; set; }
+	public static bool BMRDebugTimelineVulnFunc { get; set; }
+	public static bool BMRDebugTimelineVulnEndFunc { get; set; }
 	public static string? BMRDebugTimelineWalk { get; set; }
 
 	/// <summary>
@@ -2935,6 +2945,10 @@ internal static class DataCenter
 		BMRDebugGenericDamageType = 0;
 		BMRDebugTimelineRwFunc = false;
 		BMRDebugTimelineTbFunc = false;
+		BMRDebugTimelineDowntimeFunc = false;
+		BMRDebugTimelineDowntimeEndFunc = false;
+		BMRDebugTimelineVulnFunc = false;
+		BMRDebugTimelineVulnEndFunc = false;
 		BMRDebugHintsRwFunc = false;
 		BMRDebugHintsTbFunc = false;
 		BMRDebugTimelineWalk = null;

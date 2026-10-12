@@ -1,11 +1,11 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 
 namespace RotationSolver.RebornRotations.Melee;
 
 [Rotation("Reborn", CombatType.PvE, GameVersion = "7.55")]
 [SourceCode(Path = "main/RebornRotations/Melee/SAM_Reborn.cs")]
 
-public sealed class SAM_Reborn : SamuraiRotation
+public class SAM_Reborn : SamuraiRotation
 {
 	#region Config Options
 
@@ -103,7 +103,7 @@ public sealed class SAM_Reborn : SamuraiRotation
 			}
 		}
 
-		if ((HasOgiNamikiri || HasZanshinReady) && InCombat && UseBurstMedicine(out act))
+		if (AllowBurstMedicine && (HasOgiNamikiri || HasZanshinReady) && InCombat && UseBurstMedicine(out act))
 		{
 			return true;
 		}
@@ -131,7 +131,7 @@ public sealed class SAM_Reborn : SamuraiRotation
 			}
 		}
 
-		if (ZanshinPvE.CanUse(out act))
+		if (CanUseReadyAction(ZanshinPvE, out act))
 		{
 			return true;
 		}
@@ -183,12 +183,20 @@ public sealed class SAM_Reborn : SamuraiRotation
 
 	#endregion
 
+	protected virtual bool AllowOgiNamikiri => true;
+	protected virtual bool AllowIaijutsu => true;
+	protected virtual bool AllowHiganbana => AllowIaijutsu;
+	protected virtual bool AllowBurstMedicine => true;
+	protected virtual bool CanUseReadyAction(IBaseAction action, out IAction? act,
+		bool skipComboCheck = false, bool skipAoeCheck = false)
+		=> action.CanUse(out act, skipComboCheck: skipComboCheck, skipAoeCheck: skipAoeCheck);
+
 	#region GCD Logic
 	protected override bool GeneralGCD(out IAction? act)
 	{
 		var isTargetBoss = CurrentTarget?.IsBossFromTTK() ?? false;
 
-		if (OgiNamikiriPvE.CanUse(out act) && OgiNamikiriPvE.Target.Target != null)
+		if (AllowOgiNamikiri && CanUseReadyAction(OgiNamikiriPvE, out act) && OgiNamikiriPvE.Target.Target != null)
 		{
 			if ((!isTargetBoss || (OgiNamikiriPvE.Target.Target?.HasStatus(true, StatusID.Higanbana) ?? false)) && HasFugetsuAndFuka)
 			{
@@ -198,7 +206,7 @@ public sealed class SAM_Reborn : SamuraiRotation
 
 		if (!HiganbanaTargets || (HiganbanaTargets && NumberOfAllHostilesInRange < 2) && HasFugetsuAndFuka && !WillFugetsuEnd && !WillFukaEnd && !HasMeikyoShisui && !MidareSetsugekkaReady)
 		{
-			if (HiganbanaPvE.CanUse(out act, skipComboCheck: true, skipTTKCheck: isTargetBoss || IsInHighEndDuty))
+			if (AllowHiganbana && HiganbanaPvE.CanUse(out act, skipComboCheck: true, skipTTKCheck: isTargetBoss || IsInHighEndDuty))
 			{
 				return true;
 			}
@@ -215,7 +223,7 @@ public sealed class SAM_Reborn : SamuraiRotation
 			{
 				case STtoAOEStrategy.Hagakure:
 				default:
-					if (MidareSetsugekkaPvE.CanUse(out _) && HagakurePvE.CanUse(out act))
+					if (AllowIaijutsu && MidareSetsugekkaPvE.CanUse(out _) && HagakurePvE.CanUse(out act))
 					{
 						return true;
 					}
@@ -223,12 +231,12 @@ public sealed class SAM_Reborn : SamuraiRotation
 					break;
 
 				case STtoAOEStrategy.Setsugekka:
-					if (TendoSetsugekkaPvE.CanUse(out act))
+					if (AllowIaijutsu && CanUseReadyAction(TendoSetsugekkaPvE, out act))
 					{
 						return true;
 					}
 
-					if (MidareSetsugekkaPvE.CanUse(out act))
+					if (AllowIaijutsu && MidareSetsugekkaPvE.CanUse(out act))
 					{
 						return true;
 					}
@@ -237,32 +245,32 @@ public sealed class SAM_Reborn : SamuraiRotation
 			}
 		}
 
-		if (!HagakurePvE.EnoughLevel && NumberOfHostilesInRange >= 3 && MidareSetsugekkaPvE.CanUse(out act))
+		if (!HagakurePvE.EnoughLevel && NumberOfHostilesInRange >= 3 && AllowIaijutsu && MidareSetsugekkaPvE.CanUse(out act))
 		{
 			return true;
 		}
 
-		if (NumberOfHostilesInRange >= 2 && OgiNamikiriPvE.CanUse(out act))
+		if (NumberOfHostilesInRange >= 2 && AllowOgiNamikiri && CanUseReadyAction(OgiNamikiriPvE, out act))
 		{
 			return true;
 		}
 
-		if (TendoKaeshiGokenPvE.CanUse(out act, skipAoeCheck: true))
+		if (CanUseReadyAction(TendoKaeshiGokenPvE, out act, skipAoeCheck: true))
 		{
 			return true;
 		}
 
-		if (TendoGokenPvE.CanUse(out act, skipComboCheck: true))
+		if (AllowIaijutsu && CanUseReadyAction(TendoGokenPvE, out act, skipComboCheck: true))
 		{
 			return true;
 		}
 
-		if (KaeshiGokenPvE.CanUse(out act, skipComboCheck: true, skipAoeCheck: true))
+		if (CanUseReadyAction(KaeshiGokenPvE, out act, skipComboCheck: true, skipAoeCheck: true))
 		{
 			return true;
 		}
 
-		if (TenkaGokenPvE.CanUse(out act, skipComboCheck: true))
+		if (AllowIaijutsu && TenkaGokenPvE.CanUse(out act, skipComboCheck: true))
 		{
 			return true;
 		}
@@ -338,23 +346,23 @@ public sealed class SAM_Reborn : SamuraiRotation
 			}
 		}
 
-		if (TendoSetsugekkaPvE.CanUse(out act, skipComboCheck: true))
+		if (AllowIaijutsu && CanUseReadyAction(TendoSetsugekkaPvE, out act, skipComboCheck: true))
 		{
 			return true;
 		}
 
-		if (MidareSetsugekkaPvE.CanUse(out act, skipComboCheck: true))
+		if (AllowIaijutsu && MidareSetsugekkaPvE.CanUse(out act, skipComboCheck: true))
 		{
 			return true;
 		}
 
 		// use 2nd finisher combo spell first
-		if (KaeshiSetsugekkaPvE.CanUse(out act))
+		if (CanUseReadyAction(KaeshiSetsugekkaPvE, out act))
 		{
 			return true;
 		}
 
-		if (TendoKaeshiSetsugekkaPvE.CanUse(out act))
+		if (CanUseReadyAction(TendoKaeshiSetsugekkaPvE, out act))
 		{
 			return true;
 		}

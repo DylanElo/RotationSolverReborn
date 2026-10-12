@@ -619,6 +619,10 @@ internal partial class Configs : IPluginConfiguration, IM3Settings
 		Parent = nameof(EnableActionTracer))]
 	private static readonly bool _traceMirrorToPluginLog = false;
 
+	[ConditionBool, UI("Verbose tracer (logs cooldown/basic-check rejections; fills files ~10x faster)",
+		Parent = nameof(EnableActionTracer))]
+	private static readonly bool _traceVerbose = false;
+
 	[ConditionBool, UI("Make /rotation Manual a toggle command.",
 		Filter = BasicParams)]
 	private static readonly bool _toggleManual = false;

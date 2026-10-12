@@ -31,6 +31,26 @@ public interface IRotationConfig
 	string Parent { get; }
 
 	/// <summary>
+	/// Gets the optional section heading for this configuration.
+	/// </summary>
+	string Section { get; }
+
+	/// <summary>
+	/// Gets the stable display order for this configuration.
+	/// </summary>
+	int Order { get; }
+
+	/// <summary>
+	/// Gets the contextual help text for this configuration.
+	/// </summary>
+	string Tooltip { get; }
+
+	/// <summary>
+	/// Gets whether the current value is equivalent to the declared default.
+	/// </summary>
+	bool IsDefault { get; }
+
+	/// <summary>
 	/// Gets or sets the current value of this configuration.
 	/// </summary>
 	string Value { get; set; }

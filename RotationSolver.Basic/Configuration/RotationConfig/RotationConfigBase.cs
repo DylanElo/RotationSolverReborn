@@ -1,5 +1,6 @@
 ﻿using ECommons.Logging;
 using RotationSolver.Basic.Rotations.Duties;
+using System.Collections.Concurrent;
 using static RotationSolver.Basic.Rotations.Duties.DutyRotation;
 
 namespace RotationSolver.Basic.Configuration.RotationConfig;
@@ -12,6 +13,12 @@ internal abstract class RotationConfigBase : IRotationConfig
 	private readonly PropertyInfo _property;
 	private readonly ICustomRotation? _rotation;
 	private readonly DutyRotation? _dutyRotation;
+	private readonly string? _rotationChoice;
+
+	private ConcurrentDictionary<string, string> RotationConfigurations
+		=> _rotationChoice == null
+			? Service.Config.RotationConfigurations
+			: Service.Config.GetRotationConfigurations(DataCenter.Job, _rotationChoice);
 
 	/// <summary>
 	/// Gets the name of the configuration.
@@ -43,6 +50,15 @@ internal abstract class RotationConfigBase : IRotationConfig
 	/// </summary>
 	public string Parent { get; }
 
+	/// <inheritdoc />
+	public string Section { get; }
+
+	/// <inheritdoc />
+	public int Order { get; }
+
+	/// <inheritdoc />
+	public string Tooltip { get; }
+
 	/// <summary>
 	/// Gets the parent value of this configuration.
 	/// </summary>
@@ -53,10 +69,10 @@ internal abstract class RotationConfigBase : IRotationConfig
 	/// </summary>
 	public string Value
 	{
-		get => !Service.Config.RotationConfigurations.TryGetValue(Name, out var config) ? DefaultValue : config;
+		get => !RotationConfigurations.TryGetValue(Name, out var config) ? DefaultValue : config;
 		set
 		{
-			Service.Config.RotationConfigurations[Name] = value;
+			RotationConfigurations[Name] = value;
 			SetValue(value);
 		}
 	}
@@ -75,6 +91,7 @@ internal abstract class RotationConfigBase : IRotationConfig
 	{
 		_property = property ?? throw new ArgumentNullException(nameof(property));
 		_rotation = rotation ?? throw new ArgumentNullException(nameof(rotation));
+		_rotationChoice = rotation.GetType().FullName ?? rotation.GetType().Name;
 
 		Name = property.Name;
 		DefaultValue = property.GetValue(rotation)?.ToString() ?? string.Empty;
@@ -84,6 +101,9 @@ internal abstract class RotationConfigBase : IRotationConfig
 			DisplayName = attr.Name;
 			Type = attr.Type;
 			Parent = attr.Parent;
+			Section = attr.Section;
+			Order = attr.Order;
+			Tooltip = attr.Tooltip;
 
 			// Use ParentValue from the attribute if specified
 			if (attr.ParentValue != null)
@@ -105,13 +125,12 @@ internal abstract class RotationConfigBase : IRotationConfig
 			DisplayName = Name;
 			Type = CombatType.None;
 			Parent = string.Empty;
+			Section = string.Empty;
+			Order = int.MaxValue;
+			Tooltip = string.Empty;
 		}
 
-		// Set up initial value
-		if (Service.Config.RotationConfigurations.TryGetValue(Name, out var value))
-		{
-			SetValue(value);
-		}
+		Reload();
 	}
 
 	/// <summary>
@@ -133,6 +152,9 @@ internal abstract class RotationConfigBase : IRotationConfig
 			Type = attr.Type;
 			PhantomJob = attr.PhantomJob;
 			Parent = attr.Parent;
+			Section = attr.Section;
+			Order = attr.Order;
+			Tooltip = attr.Tooltip;
 
 			// Use ParentValue from the attribute if specified
 			if (attr.ParentValue != null)
@@ -154,13 +176,24 @@ internal abstract class RotationConfigBase : IRotationConfig
 			DisplayName = Name;
 			Type = CombatType.None;
 			Parent = string.Empty;
+			Section = string.Empty;
+			Order = int.MaxValue;
+			Tooltip = string.Empty;
 		}
 
-		// Set up initial value
-		if (Service.Config.RotationConfigurations.TryGetValue(Name, out var value))
-		{
-			SetValue(value);
-		}
+		Reload();
+	}
+
+	/// <inheritdoc />
+	public virtual bool IsDefault
+		=> string.Equals(Value, DefaultValue, StringComparison.OrdinalIgnoreCase);
+
+	/// <summary>
+	/// Reloads the runtime property from its owning persisted configuration bucket.
+	/// </summary>
+	internal void Reload()
+	{
+		SetValue(RotationConfigurations.TryGetValue(Name, out var value) ? value : DefaultValue);
 	}
 
 	/// <summary>

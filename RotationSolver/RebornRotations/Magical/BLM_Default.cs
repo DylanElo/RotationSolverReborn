@@ -1,4 +1,4 @@
-﻿namespace RotationSolver.RebornRotations.Magical;
+namespace RotationSolver.RebornRotations.Magical;
 
 [Rotation("Reborn", CombatType.PvE, GameVersion = "7.55")]
 [SourceCode(Path = "main/BasicRotations/Magical/BLM_Default.cs")]
@@ -146,6 +146,8 @@ public class BLM_Default : BlackMageRotation
 	#endregion
 
 	#region oGCD Logic
+	protected virtual bool AllowAutomaticLeyLines => LeylineMadness;
+
 	[RotationDesc(ActionID.TransposePvE, ActionID.LeyLinesPvE, ActionID.RetracePvE)]
 	protected override bool GeneralAbility(IAction nextGCD, out IAction? act)
 	{
@@ -154,7 +156,7 @@ public class BLM_Default : BlackMageRotation
 			return true;
 		}
 
-		if (LeylineMadness && InCombat && HasHostilesInRange && LeyLinesPvE.CanUse(out act, usedUp: Leyline2Madness))
+		if (AllowAutomaticLeyLines && InCombat && HasHostilesInRange && LeyLinesPvE.CanUse(out act, usedUp: Leyline2Madness))
 		{
 			return true;
 		}
@@ -258,7 +260,7 @@ public class BLM_Default : BlackMageRotation
 		return base.GeneralGCD(out act);
 	}
 
-	private bool InFireOrIce(out IAction? act, out bool mustGo)
+	protected virtual bool InFireOrIce(out IAction? act, out bool mustGo)
 	{
 		act = null;
 		mustGo = false;
@@ -299,7 +301,7 @@ public class BLM_Default : BlackMageRotation
 		return false;
 	}
 
-	private bool GoIce(out IAction? act)
+	protected virtual bool GoIce(out IAction? act)
 	{
 		act = null;
 
@@ -339,7 +341,7 @@ public class BLM_Default : BlackMageRotation
 		return false;
 	}
 
-	private bool MaintainIce(out IAction? act)
+	protected virtual bool MaintainIce(out IAction? act)
 	{
 		act = null;
 		if (UmbralIceStacks == 1 && MaxSoulCount == 3)
@@ -374,7 +376,7 @@ public class BLM_Default : BlackMageRotation
 		return false;
 	}
 
-	private bool DoIce(out IAction? act)
+	protected virtual bool DoIce(out IAction? act)
 	{
 		if (IsLastAction(ActionID.UmbralSoulPvE, ActionID.TransposePvE)
 			&& IsParadoxActive && BlizzardPvE.CanUse(out act))
@@ -438,7 +440,7 @@ public class BLM_Default : BlackMageRotation
 		return false;
 	}
 
-	private bool GoFire(out IAction? act)
+	protected virtual bool GoFire(out IAction? act)
 	{
 		act = null;
 
@@ -486,7 +488,7 @@ public class BLM_Default : BlackMageRotation
 		return false;
 	}
 
-	private bool MaintainFire(out IAction? act)
+	protected virtual bool MaintainFire(out IAction? act)
 	{
 		act = null;
 		switch (AstralFireStacks)
@@ -539,7 +541,7 @@ public class BLM_Default : BlackMageRotation
 		return false;
 	}
 
-	private bool DoFire(out IAction? act)
+	protected virtual bool DoFire(out IAction? act)
 	{
 		if (UsePolyglot(out act))
 		{
@@ -606,7 +608,7 @@ public class BLM_Default : BlackMageRotation
 		return false;
 	}
 
-	private bool UseInstanceSpell(out IAction? act)
+	protected virtual bool UseInstanceSpell(out IAction? act)
 	{
 		if (UsePolyglot(out act))
 		{
@@ -621,7 +623,7 @@ public class BLM_Default : BlackMageRotation
 		return UsePolyglot(out act, 0);
 	}
 
-	private bool AddThunder(out IAction? act, uint gcdCount = 3)
+	protected virtual bool AddThunder(out IAction? act, uint gcdCount = 3)
 	{
 		act = null;
 		//Return if just used.
@@ -661,7 +663,7 @@ public class BLM_Default : BlackMageRotation
 		return false;
 	}
 
-	private bool AddElementBase(out IAction? act)
+	protected virtual bool AddElementBase(out IAction? act)
 	{
 		if (CurrentMp >= 7200)
 		{
@@ -700,7 +702,7 @@ public class BLM_Default : BlackMageRotation
 		return false;
 	}
 
-	private bool UsePolyglot(out IAction? act, uint gcdCount = 3)
+	protected virtual bool UsePolyglot(out IAction? act, uint gcdCount = 3)
 	{
 		act = null;
 
@@ -719,7 +721,7 @@ public class BLM_Default : BlackMageRotation
 		return false;
 	}
 
-	private bool MaintainStatus(out IAction? act)
+	protected virtual bool MaintainStatus(out IAction? act)
 	{
 		act = null;
 		if (CombatElapsedLess(6))
@@ -747,7 +749,7 @@ public class BLM_Default : BlackMageRotation
 		return false;
 	}
 
-	private bool NeedToGoIce
+	protected virtual bool NeedToGoIce
 	{
 		get
 		{
@@ -762,7 +764,7 @@ public class BLM_Default : BlackMageRotation
 		}
 	}
 
-	private bool NeedToTransposeGoIce(bool usedOne)
+	protected virtual bool NeedToTransposeGoIce(bool usedOne)
 	{
 		if (!NeedToGoIce)
 		{

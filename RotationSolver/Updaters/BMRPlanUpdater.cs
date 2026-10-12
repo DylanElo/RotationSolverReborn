@@ -146,10 +146,30 @@ internal static class BMRPlanUpdater
 
 		var rotationActions = RotationUpdater.CurrentRotationActions ?? [];
 		var dutyActions = DataCenter.CurrentDutyRotation?.AllActions ?? [];
+		var nativeMchWeaveOwner = BMRPlan_IPCSubscriber.HasNativeMchWeaveOwner;
 
 		foreach (var planned in actions)
 		{
 			if (!IsActive(planned, elapsedSincePoll, out var windowEndIn))
+			{
+				continue;
+			}
+
+			// Native BMR resolves these entries every frame and consults the shared weave gate.
+			// Keep prediction data, but never create a second executor for the same mitigation.
+			if (planned.ActionId is (uint)ActionID.TacticianPvE or (uint)ActionID.DismantlePvE
+				&& nativeMchWeaveOwner)
+				continue;
+
+			// The command queue cannot carry BMR target overrides; native BMR must execute these entries.
+			if (planned.Target != 0 || planned.TargetParam != 0)
+			{
+				continue;
+			}
+
+			if (planned.TrackName is "Tactician" or "Troubadour"
+				&& planned.OptionName.EndsWith("IfNotActive", StringComparison.Ordinal)
+				&& RotationSolver.Basic.Helpers.StatusHelper.PlayerHasStatus(false, RotationSolver.Basic.Helpers.StatusHelper.RangePhysicalDefense))
 			{
 				continue;
 			}

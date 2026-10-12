@@ -341,7 +341,7 @@ public partial class MainWindow
 
 	private static int SelectedComboIndex(RotationConfigCombo combo)
 	{
-		return Math.Max(0, Array.FindIndex(combo.DisplayValues, n => n.Equals(combo.Value, StringComparison.OrdinalIgnoreCase)));
+		return Math.Max(0, combo.ValueIndex(combo.Value));
 	}
 
 	private static void DrawRotationConfigControl(IRotationConfig config, string id, float controlWidth)
@@ -421,6 +421,18 @@ public partial class MainWindow
 		}
 	}
 
+	private static string _rotationConfigSearch = string.Empty;
+
+	private static bool MatchesRotationConfigSearch(IRotationConfig config)
+	{
+		if (string.IsNullOrWhiteSpace(_rotationConfigSearch)) return true;
+		var search = _rotationConfigSearch.Trim();
+		return config.DisplayName.Contains(search, StringComparison.OrdinalIgnoreCase)
+			|| config.Name.Contains(search, StringComparison.OrdinalIgnoreCase)
+			|| config.Section.Contains(search, StringComparison.OrdinalIgnoreCase)
+			|| config.Tooltip.Contains(search, StringComparison.OrdinalIgnoreCase);
+	}
+
 	private static void DrawRotationConfiguration()
 	{
 		var rotation = DataCenter.CurrentRotation;
@@ -447,11 +459,18 @@ public partial class MainWindow
 
 		var set = rotation.Configs;
 		var drewSeparator = false;
+		ImGui.SetNextItemWidth(-1);
+		_ = ImGui.InputTextWithHint("##RotationConfigSearch", "Search rotation settings", ref _rotationConfigSearch, 128);
+		var searching = !string.IsNullOrWhiteSpace(_rotationConfigSearch);
+		var currentSection = string.Empty;
 
-		foreach (var config in set.Configs)
+		var orderedConfigs = new List<IRotationConfig>(set.Configs);
+		orderedConfigs.Sort((left, right) => left.Order.CompareTo(right.Order));
+		foreach (var config in orderedConfigs)
 		{
 			var requiredType = DataCenter.IsPvP ? CombatType.PvP : CombatType.PvE;
-			if (!config.Type.HasFlag(requiredType) || !ShouldShowRotationConfig(config, set))
+			if (!config.Type.HasFlag(requiredType) || !MatchesRotationConfigSearch(config)
+				|| (!searching && !ShouldShowRotationConfig(config, set)))
 			{
 				continue;
 			}
@@ -460,6 +479,16 @@ public partial class MainWindow
 			{
 				M3Widgets.Divider(6f);
 				drewSeparator = true;
+			}
+
+			if (!string.Equals(currentSection, config.Section, StringComparison.Ordinal))
+			{
+				currentSection = config.Section;
+				if (!string.IsNullOrEmpty(currentSection))
+				{
+					ImGui.Spacing();
+					ImGui.TextDisabled(currentSection);
+				}
 			}
 
 			var tooltip = GetRotationConfigTooltip(rotation, config);

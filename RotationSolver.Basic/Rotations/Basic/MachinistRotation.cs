@@ -47,7 +47,12 @@ public partial class MachinistRotation
 
 	private static float OverheatTimeRemainingRaw => JobGauge.OverheatTimeRemaining / 1000f;
 
-	private static float SummonTimeRemainingRaw => JobGauge.SummonTimeRemaining / 1000f;
+	/// <summary>
+	/// Raw remaining Rook/Queen lifetime in seconds. Unlike <see cref="SummonTime"/> this has no
+	/// GCD remainder subtracted, so it is the value to compare against wall-clock predictions such
+	/// as time-to-kill or time-to-downtime.
+	/// </summary>
+	protected static float SummonTimeRemainingRaw => JobGauge.SummonTimeRemaining / 1000f;
 
 	/// <summary>
 	/// Gets the time remaining for Overheat in seconds minus the DefaultGCDRemain.
@@ -338,7 +343,7 @@ public partial class MachinistRotation
 		setting.IsFriendly = false;
 		setting.CreateConfig = () => new ActionConfig()
 		{
-			AoeCount = 6,
+			AoeCount = 3,
 		};
 	}
 

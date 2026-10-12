@@ -17,6 +17,22 @@ internal class RotationConfigCombo : RotationConfigBase
 	/// </summary>
 	private string[] EnumNames { get; }
 
+	/// <inheritdoc />
+	public override bool IsDefault => ValueIndex(Value) == ValueIndex(DefaultValue);
+
+	internal int ValueIndex(string value)
+	{
+		for (var i = 0; i < DisplayValues.Length; i++)
+		{
+			if (DisplayValues[i].Equals(value, StringComparison.OrdinalIgnoreCase)
+				|| EnumNames[i].Equals(value, StringComparison.OrdinalIgnoreCase))
+			{
+				return i;
+			}
+		}
+		return -1;
+	}
+
 	/// <summary>
 	/// Initializes a new instance of the <see cref="RotationConfigCombo"/> class.
 	/// </summary>
@@ -124,7 +140,7 @@ internal class RotationConfigCombo : RotationConfigBase
 		var numStr = str[Name.Length..].Trim();
 		var length = DisplayValues.Length;
 
-		var currentIndex = Array.IndexOf(DisplayValues, Value);
+		var currentIndex = ValueIndex(Value);
 		if (currentIndex == -1)
 		{
 			currentIndex = 0;

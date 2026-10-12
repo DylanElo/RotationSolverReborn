@@ -19,6 +19,20 @@ namespace RotationSolver.IPC
 			_ = EzIPC.Init(this, prefix: "RotationSolverReborn");
 		}
 
+		[EzIPC]
+		public int PlannedMchUtilityWeave(uint actionId, float animationLock, float deadline)
+		{
+			var protectedHandoff = ActionUpdater.NextAction?.AdjustedID is (uint)ActionID.WildfirePvE or (uint)ActionID.HyperchargePvE
+				|| DataCenter.LastAction == ActionID.WildfirePvE;
+			return Updaters.PlannedMchUtilityWeave.Decide(
+				Service.Config.UseBmrPlan && DataCenter.State && !DataCenter.IsTargetOnly
+					&& !Service.Config.TeachingMode && DataCenter.Job == ECommons.ExcelServices.Job.MCH
+					&& ECommons.GameHelpers.Player.Object?.CurrentHp > 0 && !DataCenter.IsPvP,
+				actionId is (uint)ActionID.TacticianPvE or (uint)ActionID.DismantlePvE,
+				DataCenter.AnimationLock, animationLock, deadline, DataCenter.DefaultGCDRemain,
+				DataCenter.CalculatedActionAhead, ActionUpdater.NextGCDAction != null, protectedHandoff);
+		}
+
 		/// <summary>
 		/// IPC method for testing connectivity and logging a debug message.
 		/// </summary>

@@ -1,9 +1,9 @@
-﻿namespace RotationSolver.RebornRotations.Melee;
+namespace RotationSolver.RebornRotations.Melee;
 
 [Rotation("Reborn", CombatType.PvE, GameVersion = "7.55")]
 [SourceCode(Path = "main/RebornRotations/Melee/VPR_Reborn.cs")]
 
-public sealed class VPR_Reborn : ViperRotation
+public class VPR_Reborn : ViperRotation
 {
 	#region Config Options
 
@@ -199,7 +199,7 @@ public sealed class VPR_Reborn : ViperRotation
 		}
 
 		// Use burst medicine if cooldown for Serpents Ire has elapsed sufficiently
-		if (NoAbilityReady && BurstMed && SerpentsIrePvE.EnoughLevel && SerpentsIrePvE.Cooldown.ElapsedAfter(115)
+		if (AllowBurstMedicine && NoAbilityReady && BurstMed && SerpentsIrePvE.EnoughLevel && SerpentsIrePvE.Cooldown.ElapsedAfter(115)
 			&& UseBurstMedicine(out act))
 		{
 			return true;
@@ -268,11 +268,20 @@ public sealed class VPR_Reborn : ViperRotation
 	}
 	#endregion
 
+	protected virtual bool AllowSerpentsIre => true;
+	protected virtual bool AllowViceCombo => true;
+	protected virtual bool AllowReawaken => LiveComboTime > GCDTime(6)
+		&& ((SerpentsIrePvE.EnoughLevel && (!SerpentsIrePvE.Cooldown.ElapsedAfter(ReawakenDelayTimer) || SerpentOffering == 100)) || !SerpentsIrePvE.EnoughLevel)
+		&& SwiftTime > SwiftTimer && HuntersTime > HuntersTimer;
+	protected virtual bool AllowUncoiledFury => true;
+	protected virtual bool PreferUncoiledFury => false;
+	protected virtual bool AllowBurstMedicine => true;
+
 	#region oGCD Logic
 
 	protected override bool AttackAbility(IAction nextGCD, out IAction? act)
 	{
-		if (IsBurst)
+		if (IsBurst && AllowSerpentsIre)
 		{
 			if (!SerpentsLineageTrait.EnoughLevel)
 			{
@@ -301,7 +310,7 @@ public sealed class VPR_Reborn : ViperRotation
 		if (AbilityPrio2 &&
 			!NoAbilityReady)
 		{
-			if ((UFGhosting || (!UFGhosting && NoAbilityReady)) && !HasHostilesInRange && UncoiledFuryPvE.CanUse(out act, usedUp: true))
+			if ((UFGhosting || (!UFGhosting && NoAbilityReady)) && !HasHostilesInRange && AllowUncoiledFury && UncoiledFuryPvE.CanUse(out act, usedUp: true))
 			{
 				return true;
 			}
@@ -341,14 +350,19 @@ public sealed class VPR_Reborn : ViperRotation
 		}
 
 		// Check if player meets Serpents Ire requirements, then check buff timers.
-		if (LiveComboTime > GCDTime(6) && ((SerpentsIrePvE.EnoughLevel && (!SerpentsIrePvE.Cooldown.ElapsedAfter(ReawakenDelayTimer) || SerpentOffering == 100)) || !SerpentsIrePvE.EnoughLevel)
-			&& SwiftTime > SwiftTimer && HuntersTime > HuntersTimer)
+		if (AllowReawaken)
 		{
 			// If all above conditions are met, attempt to use Reawaken.
 			if (IsBurst && ReawakenPvE.CanUse(out act, skipComboCheck: true))
 			{
 				return true;
 			}
+		}
+
+		if (PreferUncoiledFury && AllowUncoiledFury && NoAbilityReady && !HasReadyToReawaken
+			&& !WillSwiftEnd && !WillHunterEnd && UncoiledFuryPvE.CanUse(out act, usedUp: true))
+		{
+			return true;
 		}
 
 		if (LiveComboTime > GCDTime(1) && !WillSwiftEnd && !WillHunterEnd)
@@ -358,7 +372,7 @@ public sealed class VPR_Reborn : ViperRotation
 			var isTargetDying = CurrentTarget?.IsDying() ?? false;
 			if ((MaxRattling == RattlingCoilStacks || RattlingCoilStacks >= MaxUncoiledStacksUser || (isTargetBoss && isTargetDying && RattlingCoilStacks > 0)) && !HasReadyToReawaken && NoAbilityReady)
 			{
-				if (UncoiledFuryPvE.CanUse(out act, usedUp: true))
+				if (AllowUncoiledFury && UncoiledFuryPvE.CanUse(out act, usedUp: true))
 				{
 					return true;
 				}
@@ -366,7 +380,7 @@ public sealed class VPR_Reborn : ViperRotation
 
 			if (MedicineUncoiledFury && StatusHelper.PlayerHasStatus(true, StatusID.Medicated) && !HasReadyToReawaken && NoAbilityReady)
 			{
-				if (UncoiledFuryPvE.CanUse(out act, usedUp: true))
+				if (AllowUncoiledFury && UncoiledFuryPvE.CanUse(out act, usedUp: true))
 				{
 					return true;
 				}
@@ -378,7 +392,7 @@ public sealed class VPR_Reborn : ViperRotation
 				&& !HasReadyToReawaken
 				&& NoAbilityReady)
 			{
-				if (UncoiledFuryPvE.CanUse(out act, usedUp: true))
+				if (AllowUncoiledFury && UncoiledFuryPvE.CanUse(out act, usedUp: true))
 				{
 					return true;
 				}
@@ -471,7 +485,7 @@ public sealed class VPR_Reborn : ViperRotation
 			}
 		}
 
-		if (LiveComboTime > GCDTime(3) && IsSwift && VicepitPvE.Cooldown.CurrentCharges > 0)
+		if (AllowViceCombo && LiveComboTime > GCDTime(3) && IsSwift && VicepitPvE.Cooldown.CurrentCharges > 0)
 		{
 			if (VicepitPvE.Cooldown.CurrentCharges == 1 && VicepitPvE.Cooldown.RecastTimeRemainOneCharge < 10)
 			{
@@ -788,7 +802,7 @@ public sealed class VPR_Reborn : ViperRotation
 			}
 		}
 
-		if (LiveComboTime > GCDTime(3) && IsSwift)
+		if (AllowViceCombo && LiveComboTime > GCDTime(3) && IsSwift)
 		{
 			if (VicewinderPvE.Cooldown.CurrentCharges == 1 && VicewinderPvE.Cooldown.RecastTimeRemainOneCharge < 10)
 			{
@@ -1006,7 +1020,7 @@ public sealed class VPR_Reborn : ViperRotation
 		}
 
 		//Ranged
-		if ((UFGhosting || (!UFGhosting && NoAbilityReady)) && UncoiledFuryPvE.CanUse(out act, usedUp: true))
+		if ((UFGhosting || (!UFGhosting && NoAbilityReady)) && AllowUncoiledFury && UncoiledFuryPvE.CanUse(out act, usedUp: true))
 		{
 			return true;
 		}

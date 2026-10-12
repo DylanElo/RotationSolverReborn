@@ -249,7 +249,7 @@ public partial class CustomRotation
 						continue;
 					}
 
-					var remaining = StatusHelper.PlayerStatusTime(true, buff.Ids[0]);
+					var remaining = StatusHelper.PlayerStatusTime(false, buff.Ids);
 					if (remaining > maxDuration)
 					{
 						maxDuration = remaining;
@@ -267,7 +267,7 @@ public partial class CustomRotation
 						continue;
 					}
 
-					var remaining = HostileTarget.StatusTime(true, buff.Ids[0]);
+					var remaining = HostileTarget.StatusTime(false, buff.Ids);
 					if (remaining > maxDuration)
 					{
 						maxDuration = remaining;
@@ -285,6 +285,11 @@ public partial class CustomRotation
 	/// <para>This list is populated by <see cref="StatusList"/> based on the party composition or the player's current job, and is used to track which status effects should be monitored for activation on the player (buffs) or hostile target (debuffs).</para>
 	/// </summary>
 	public static List<StatusInfo> Buffs { get; } = [];
+	private static ulong _partyBuffJobMask = ulong.MaxValue;
+	/// <summary>
+	/// Increments whenever the party jobs used to build <see cref="Buffs"/> change.
+	/// </summary>
+	protected static int PartyBuffsVersion { get; private set; }
 
 	/// <summary>
 	/// Populates the <see cref="Buffs"/> list with status effects (buffs and debuffs) based on the current party composition or the player's job.
@@ -296,24 +301,27 @@ public partial class CustomRotation
 	/// </summary>
 	public static void StatusList()
 	{
+		ulong jobMask = 0;
+		foreach (var member in PartyMembers)
+		{
+			var rowId = member.ClassJob.RowId;
+			if (rowId < 64)
+			{
+				jobMask |= 1UL << (int)rowId;
+			}
+		}
+
+		if (jobMask == _partyBuffJobMask) return;
+
+		_partyBuffJobMask = jobMask;
+		PartyBuffsVersion++;
 		Buffs.Clear();
 		var processedJobs = new HashSet<string>();
 
-		if (PartyComposition == null)
+		foreach (var member in PartyMembers)
 		{
-			if (Player?.ClassJob.Value.Abbreviation != null)
-			{
-				var abbr = Player.ClassJob.Value.Abbreviation.ToString();
-				AddJobBuffs(abbr, processedJobs);
-			}
-		}
-		else
-		{
-			foreach (var job in PartyComposition)
-			{
-				var abbr = job.Value.Abbreviation.ToString();
-				AddJobBuffs(abbr, processedJobs);
-			}
+			var abbr = member.ClassJob.Value.Abbreviation.ToString();
+			AddJobBuffs(abbr, processedJobs);
 		}
 	}
 

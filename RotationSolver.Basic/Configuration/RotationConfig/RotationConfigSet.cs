@@ -138,3 +138,21 @@ public class RotationConfigSet : IRotationConfigSet
 		return Configs.GetEnumerator();
 	}
 }
+
+internal static class RotationConfigSetExtensions
+{
+	/// <summary>
+	/// Reloads all framework-owned runtime properties in a rotation configuration set.
+	/// </summary>
+	/// <param name="configs">The configuration set to reload.</param>
+	internal static void Reload(this IRotationConfigSet configs)
+	{
+		foreach (var config in configs)
+		{
+			if (config is RotationConfigBase rotationConfig)
+			{
+				rotationConfig.Reload();
+			}
+		}
+	}
+}

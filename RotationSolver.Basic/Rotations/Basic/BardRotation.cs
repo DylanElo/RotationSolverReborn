@@ -18,6 +18,9 @@ public partial class BardRotation
 	/// </summary>
 	protected static Song Song => JobGauge.Song;
 
+	/// <summary>Songs whose Coda Radiant Finale will consume.</summary>
+	protected static Song[] Coda => JobGauge.Coda;
+
 	/// <summary>
 	/// 
 	/// </summary>

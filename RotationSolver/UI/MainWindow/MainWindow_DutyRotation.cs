@@ -106,5 +106,6 @@ public partial class MainWindow
 
 		ImGuiHelper.ReactPopupAt(row.Hovered, key, false);
 		M3SettingRow.End(row);
+		if (!config.IsDefault && ImGui.SmallButton($"Reset##{key}")) Reset();
 	}
 }

@@ -1,5 +1,6 @@
 using ECommons.GameHelpers;
 using RotationSolver.Basic.Configuration;
+using RotationSolver.Updaters;
 
 namespace RotationSolver.Helpers;
 
@@ -37,7 +38,10 @@ internal static class NoCastingStatusHelper
 		var found = false;
 		foreach (var status in statusList)
 		{
-			if (status == null || status.StatusId == 0 || !noCastingStatus.Contains(status.StatusId))
+			if (status == null
+				|| status.StatusId == 0
+				|| !noCastingStatus.Contains(status.StatusId)
+				|| !NoCastingStatusWindow.IsActive(status.StatusId, status.RemainingTime))
 			{
 				continue;
 			}

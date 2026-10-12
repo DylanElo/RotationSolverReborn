@@ -27,3 +27,12 @@ jobs:
 
       - name: Build Plugin
         run: dotnet build --no-restore -c Release RotationSolver/RotationSolver.csproj
+
+      - name: Validate MCH Core Policy
+        run: dotnet run --project tests/MCHSyncPolicyCheck/MCHSyncPolicyCheck.csproj -c Release -- .\RotationSolver\bin\Release\RotationSolver.dll
+
+      - name: Validate MCH Sync Policy
+        run: dotnet run --project tests/MCHSyncPlusPolicyCheck/MCHSyncPlusPolicyCheck.csproj -c Release -- .\RotationSolver\bin\Release\RotationSolver.dll
+
+      - name: Validate Rotation Configuration Lifecycle
+        run: dotnet run --project tests/RotationConfigLifecycleCheck/RotationConfigLifecycleCheck.csproj -c Release

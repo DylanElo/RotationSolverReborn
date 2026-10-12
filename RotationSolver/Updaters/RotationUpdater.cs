@@ -5,12 +5,28 @@ using ECommons.Logging;
 using Lumina.Excel.Sheets;
 using RotationSolver.Basic.Rotations.Duties;
 using RotationSolver.Helpers;
+using System.Collections.Concurrent;
 
 
 namespace RotationSolver.Updaters;
 
 internal static class RotationUpdater
 {
+	private const string RetiredMchSyncType = "RotationSolver.RebornRotations.Ranged.MCH_Sync";
+	private const string CanonicalMchSyncType = "RotationSolver.RebornRotations.Ranged.MCH_SyncPlus";
+	private static readonly string[] RetiredMchSyncSharedConfigKeys =
+	[
+		"UseSecondBurstMedicine",
+		"SecondMedicineTime",
+		"OpenerBurstMeds",
+		"BioMove",
+		"WildfireBoss",
+		"MitOverlap",
+		"AirAnchorCountdown",
+		"MultiTact",
+		"BmrDumpBeforeDowntime",
+	];
+
 	internal record CustomRotationGroup(Job JobId, Job[] ClassJobIds, Type[] Rotations);
 	internal static SortedList<JobRole, CustomRotationGroup[]> CustomRotationsDict { get; private set; } = [];
 
@@ -416,6 +432,29 @@ internal static class RotationUpdater
 
 		var nowJob = Player.Job;
 		var curCombatType = DataCenter.IsPvP ? CombatType.PvP : CombatType.PvE;
+		var configuredRotationName = DataCenter.IsPvP
+			? Service.Config.PvPRotationChoice
+			: Service.Config.RotationChoice;
+		var desiredRotationName = ResolveRetiredRotationChoice(configuredRotationName);
+		if (!string.Equals(configuredRotationName, desiredRotationName, StringComparison.Ordinal))
+		{
+			// Seed before InitReferenceDict constructs MCH Sync. Enum config construction persists its
+			// default, which would otherwise make an untouched canonical bucket look configured.
+			var retiredConfigurations = Service.Config.GetRotationConfigurations(nowJob, configuredRotationName);
+			var canonicalConfigurations = Service.Config.GetRotationConfigurations(nowJob, desiredRotationName);
+			SeedCanonicalMchSyncConfiguration(retiredConfigurations, canonicalConfigurations);
+
+			if (DataCenter.IsPvP)
+			{
+				Service.Config.PvPRotationChoice = desiredRotationName;
+			}
+			else
+			{
+				Service.Config.RotationChoice = desiredRotationName;
+			}
+			Service.Config.Save();
+			PluginLog.Information($"Migrated retired rotation selection '{configuredRotationName}' to '{desiredRotationName}'.");
+		}
 
 		if (DataCenter.CurrentRotation?.Job == nowJob && DataCenter.CurrentRotation?.GetAttributes()?.Type == curCombatType)
 		{
@@ -442,8 +481,6 @@ internal static class RotationUpdater
 					PluginLog.Information($"No valid {curCombatType} rotations found for {nowJob}");
 					return;
 				}
-
-				var desiredRotationName = DataCenter.IsPvP ? Service.Config.PvPRotationChoice : Service.Config.RotationChoice;
 
 				// Check if we have a matching rotation for the config, or use the first rotation which should be our default
 				var rotation = validCustomRotationsList[0];
@@ -480,10 +517,65 @@ internal static class RotationUpdater
 
 	public static void ChangeRotation(ICustomRotation rotation)
 	{
+		rotation.Configs.Reload();
 		rotation.OnTerritoryChanged();
 		DataCenter.CurrentRotation = rotation;
 		CurrentRotationActions = DataCenter.CurrentRotation?.AllActions ?? [];
 	}
+
+	internal static string ResolveRetiredRotationChoice(string configuredRotationName)
+		=> string.Equals(configuredRotationName, RetiredMchSyncType, StringComparison.Ordinal)
+			? CanonicalMchSyncType
+			: configuredRotationName;
+
+	internal static bool SeedCanonicalMchSyncConfiguration(
+		ConcurrentDictionary<string, string> retiredConfigurations,
+		ConcurrentDictionary<string, string> canonicalConfigurations)
+	{
+		var changed = false;
+		foreach (var key in RetiredMchSyncSharedConfigKeys)
+		{
+			if (retiredConfigurations.TryGetValue(key, out var value))
+			{
+				changed |= canonicalConfigurations.TryAdd(key, value);
+			}
+		}
+
+		if (retiredConfigurations.TryGetValue("BurstPlan", out var burstPlan))
+		{
+			const string canonicalKey = "SyncPlusBurstPlan";
+			var migratedPlan = NormalizeRetiredMchSyncBurstPlan(burstPlan);
+			if (canonicalConfigurations.TryAdd(canonicalKey, migratedPlan))
+			{
+				changed = true;
+			}
+			else if (canonicalConfigurations.TryGetValue(canonicalKey, out var canonicalPlan)
+				&& IsEagerCanonicalMchSyncDefault(canonicalPlan))
+			{
+				// RotationConfigCombo historically persisted enum defaults while merely constructing
+				// an unselected rotation. Treat only that known default as absent; any non-default
+				// canonical choice remains authoritative.
+				changed |= canonicalConfigurations.TryUpdate(canonicalKey, migratedPlan, canonicalPlan);
+			}
+		}
+
+		return changed;
+	}
+
+	private static string NormalizeRetiredMchSyncBurstPlan(string value)
+		=> value switch
+		{
+			"Automatic (FRU + dungeons)" => "Automatic",
+			"FRU / trust party" => "TrustParty",
+			// Normal collapsed into Automatic - the two differed only in dungeon banking,
+			// which never applied outside a dungeon anyway.
+			"Normal / safe sync" => "Automatic",
+			"Solo / ignore party buffs" => "Personal",
+			_ => value,
+		};
+
+	private static bool IsEagerCanonicalMchSyncDefault(string value)
+		=> value is "Automatic" or "Automatic (timeline + dungeons)";
 
 	private static ICustomRotation? GetRotation(Type? t)
 	{

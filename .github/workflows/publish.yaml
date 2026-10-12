@@ -36,6 +36,15 @@ jobs:
       - name: Build Plugin
         run: dotnet build --no-restore -c Release RotationSolver/RotationSolver.csproj -p:AssemblyVersion=${{ env.tag }} -p:FileVersion=${{ env.tag }} -p:PackageVersion=${{ env.tag }} -p:InformationalVersion=${{ env.tag }} --output .\build
 
+      - name: Validate MCH Core Policy
+        run: dotnet run --project tests/MCHSyncPolicyCheck/MCHSyncPolicyCheck.csproj -c Release -- .\build\RotationSolver.dll
+
+      - name: Validate MCH Sync Policy
+        run: dotnet run --project tests/MCHSyncPlusPolicyCheck/MCHSyncPlusPolicyCheck.csproj -c Release -- .\build\RotationSolver.dll
+
+      - name: Validate Rotation Configuration Lifecycle
+        run: dotnet run --project tests/RotationConfigLifecycleCheck/RotationConfigLifecycleCheck.csproj -c Release
+
       - name: Publish Plugin
         uses: softprops/action-gh-release@v3
         with:

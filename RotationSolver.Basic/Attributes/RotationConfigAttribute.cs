@@ -38,4 +38,14 @@ public class RotationConfigAttribute(CombatType type) : Attribute
 	/// Tooltip for this config.
 	/// </summary>
 	public string Tooltip { get; set; } = string.Empty;
+
+	/// <summary>
+	/// Optional section heading used by the rotation configuration UI.
+	/// </summary>
+	public string Section { get; set; } = string.Empty;
+
+	/// <summary>
+	/// Stable display order. Unspecified settings retain their existing relative order.
+	/// </summary>
+	public int Order { get; set; } = int.MaxValue;
 }

@@ -100,8 +100,10 @@ internal static class ActionUpdater
 
 	internal static void UpdateNextAction()
 	{
-		ActionTracer.Enabled = Service.Config.EnableActionTracer;
+		// Keep detailed phase-transition evidence, but do not let idle frames prune the pull.
+		ActionTracer.Enabled = Service.Config.EnableActionTracer && DataCenter.InCombat;
 		ActionTracer.MirrorToPluginLog = Service.Config.TraceMirrorToPluginLog;
+		ActionTracer.Verbose = Service.Config.TraceVerbose;
 
 		var localPlayer = Player.Object;
 		var customRotation = DataCenter.CurrentRotation;

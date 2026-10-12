@@ -33,6 +33,15 @@ internal static class ActionTracer
 
 	internal static bool MirrorToPluginLog;
 
+	/// <summary>
+	/// Logs every evaluation including the two outcomes that dominate the file - an action being
+	/// on cooldown or failing its basic check - plus a TRY line per evaluation that its own
+	/// REJECT/ACCEPT immediately restates. Those accounted for over 90% of a real 7-minute pull,
+	/// which rolled the 5 MB file ten times and pruned the start of the fight before it finished.
+	/// Off by default so a whole pull fits in one file; turn it on only to debug the tracer itself.
+	/// </summary>
+	internal static bool Verbose;
+
 	internal static void Init()
 	{
 		try
@@ -156,7 +165,7 @@ internal static class ActionTracer
 
 	internal static void Try(IBaseAction a)
 	{
-		if (!Enabled)
+		if (!Enabled || !Verbose)
 		{
 			return;
 		}
@@ -167,6 +176,13 @@ internal static class ActionTracer
 	internal static bool Reject(IBaseAction a, string reason)
 	{
 		if (!Enabled)
+		{
+			return false;
+		}
+
+		// Must still return false either way - callers use this as the CanUse result, not just as
+		// a log call. Only the writing is suppressed.
+		if (!Verbose && (reason == "Cooldown" || reason == "BasicCheck"))
 		{
 			return false;
 		}

@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Using Include="System.ComponentModel" />
+    <Using Include="System.Collections.Concurrent" />
+    <Using Include="ECommons.ExcelServices" />
+    <Using Include="RotationSolver.Basic" />
+    <Using Include="RotationSolver.Basic.Attributes" />
+    <Using Include="RotationSolver.Basic.Configuration.RotationConfig" />
+    <Using Include="RotationSolver.Basic.Data" />
+    <Using Include="RotationSolver.Basic.Rotations" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\RotationSolver.Basic\Attributes\RangeAttribute.cs" Link="Framework\RangeAttribute.cs" />
+    <Compile Include="..\..\RotationSolver.Basic\Attributes\RotationConfigAttribute.cs" Link="Framework\RotationConfigAttribute.cs" />
+    <Compile Include="..\..\RotationSolver.Basic\Configuration\Configs.RotationConfigurations.cs" Link="Framework\Configs.RotationConfigurations.cs" />
+    <Compile Include="..\..\RotationSolver.Basic\Configuration\RotationConfig\IRotationConfig.cs" Link="Framework\IRotationConfig.cs" />
+    <Compile Include="..\..\RotationSolver.Basic\Configuration\RotationConfig\IRotationConfigSet.cs" Link="Framework\IRotationConfigSet.cs" />
+    <Compile Include="..\..\RotationSolver.Basic\Configuration\RotationConfig\RotationConfigBase.cs" Link="Framework\RotationConfigBase.cs" />
+    <Compile Include="..\..\RotationSolver.Basic\Configuration\RotationConfig\RotationConfigBoolean.cs" Link="Framework\RotationConfigBoolean.cs" />
+    <Compile Include="..\..\RotationSolver.Basic\Configuration\RotationConfig\RotationConfigCombo.cs" Link="Framework\RotationConfigCombo.cs" />
+    <Compile Include="..\..\RotationSolver.Basic\Configuration\RotationConfig\RotationConfigComparer.cs" Link="Framework\RotationConfigComparer.cs" />
+    <Compile Include="..\..\RotationSolver.Basic\Configuration\RotationConfig\RotationConfigFloat.cs" Link="Framework\RotationConfigFloat.cs" />
+    <Compile Include="..\..\RotationSolver.Basic\Configuration\RotationConfig\RotationConfigInt.cs" Link="Framework\RotationConfigInt.cs" />
+    <Compile Include="..\..\RotationSolver.Basic\Configuration\RotationConfig\RotationConfigSet.cs" Link="Framework\RotationConfigSet.cs" />
+    <Compile Include="..\..\RotationSolver.Basic\Configuration\RotationConfig\RotationConfigString.cs" Link="Framework\RotationConfigString.cs" />
+    <Compile Include="..\..\RotationSolver.Basic\Data\CombatType.cs" Link="Framework\CombatType.cs" />
+  </ItemGroup>
+</Project>

@@ -27,6 +27,10 @@ internal static class BossModUpdater
 			// Store whether IPC Funcs are bound (null = BMR doesn't have that endpoint)
 			DataCenter.BMRDebugTimelineRwFunc = BMRTimeline_IPCSubscriber.NextRaidwideIn != null;
 			DataCenter.BMRDebugTimelineTbFunc = BMRTimeline_IPCSubscriber.NextTankbusterIn != null;
+			DataCenter.BMRDebugTimelineDowntimeFunc = BMRTimeline_IPCSubscriber.NextDowntimeIn != null;
+			DataCenter.BMRDebugTimelineDowntimeEndFunc = BMRTimeline_IPCSubscriber.NextDowntimeEndIn != null;
+			DataCenter.BMRDebugTimelineVulnFunc = BMRTimeline_IPCSubscriber.NextVulnerableIn != null;
+			DataCenter.BMRDebugTimelineVulnEndFunc = BMRTimeline_IPCSubscriber.NextVulnerableEndIn != null;
 			DataCenter.BMRDebugHintsRwFunc = BMRTimeline_IPCSubscriber.NextRaidwideDamageIn != null;
 			DataCenter.BMRDebugHintsTbFunc = BMRTimeline_IPCSubscriber.NextTankbusterDamageIn != null;
 

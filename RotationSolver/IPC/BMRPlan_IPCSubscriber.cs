@@ -24,6 +24,18 @@ internal static class BMRPlan_IPCSubscriber
 	[EzIPC("Plan.GetUpcomingActions", true)]
 	internal static readonly Func<float, string>? GetUpcomingActions;
 
+	[EzIPC("Plan.MchWeaveHandoffVersion", true)]
+	internal static readonly Func<int>? MchWeaveHandoffVersion;
+
+	internal static bool HasNativeMchWeaveOwner
+	{
+		get
+		{
+			try { return Updaters.PlannedMchUtilityWeave.HasNativeOwner(IsEnabled, MchWeaveHandoffVersion?.Invoke() ?? 0); }
+			catch { return false; } // Older or unloaded BMR retains the legacy planner path.
+		}
+	}
+
 	private static ICallGateSubscriber<object>? _actionsChangedSubscriber;
 	private static Action? _actionsChangedCallback;
 
