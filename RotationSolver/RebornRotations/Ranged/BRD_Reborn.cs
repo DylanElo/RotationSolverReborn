@@ -4,7 +4,7 @@ namespace RotationSolver.RebornRotations.Ranged;
 	Description = "Please make sure that the three song times add up to 120 seconds, Wanderers default first song for now.")]
 [SourceCode(Path = "main/RebornRotations/Ranged/BRD_Reborn.cs")]
 
-public sealed class BRD_Reborn : BardRotation
+public class BRD_Reborn : BardRotation
 {
 	#region Config Options
 
@@ -17,6 +17,9 @@ public sealed class BRD_Reborn : BardRotation
 
 	[RotationConfig(CombatType.PvE, Name = "FRU potion bursts: combat times in seconds, comma separated (replaces the countdown potion in FRU only)")]
 	public string PotionTimes { get; set; } = "240,630,970";
+
+	[RotationConfig(CombatType.PvE, Name = "FRU: pad Fatebreaker so it dies at the end of its enrage cast")]
+	public bool PadFatebreaker { get; set; } = true;
 
 	[RotationConfig(CombatType.PvE, Name = "Only use DOTs on targets with Boss Icon")]
 	public bool DOTBoss { get; set; } = false;
@@ -41,19 +44,19 @@ public sealed class BRD_Reborn : BardRotation
 	public float ARMYTime { get; set; } = 34;
 
 	[RotationConfig(CombatType.PvE, Name = "First Song")]
-	private SongTrack FirstSong { get; set; } = SongTrack.WanderersMinuet;
+	private protected SongTrack FirstSong { get; set; } = SongTrack.WanderersMinuet;
 
 	[RotationConfig(CombatType.PvE, Name = "Second Song")]
-	private SongTrack SecondSong { get; set; } = SongTrack.MagesBallad;
+	private protected SongTrack SecondSong { get; set; } = SongTrack.MagesBallad;
 
 	[RotationConfig(CombatType.PvE, Name = "Third Song")]
-	private SongTrack ThirdSong { get; set; } = SongTrack.ArmysPaeon;
+	private protected SongTrack ThirdSong { get; set; } = SongTrack.ArmysPaeon;
 
 	[RotationConfig(CombatType.PvE, Name = "Use Warden's Paean on other players")]
 	public bool BRDEsuna { get; set; } = true;
 
 	[RotationConfig(CombatType.PvE, Name = "Prevent the use of defense abilties during burst")]
-	private bool BurstDefense { get; set; } = true;
+	private protected bool BurstDefense { get; set; } = true;
 
 	private float WANDRemainTime => 45 - WANDTime;
 	private float MAGERemainTime => 45 - MAGETime;
@@ -62,6 +65,14 @@ public sealed class BRD_Reborn : BardRotation
 	private bool InBurstStatus => (!BattleVoicePvE.EnoughLevel && HasRagingStrikes)
 		|| (BattleVoicePvE.EnoughLevel && !RadiantFinalePvE.EnoughLevel && HasRagingStrikes && HasBattleVoice)
 		|| (MinstrelsCodaTrait.EnoughLevel && HasRagingStrikes && HasRadiantFinale && HasBattleVoice);
+
+	private bool PaddingFatebreaker => PadFatebreaker && FRUPad.Padding(CurrentTarget, CombatTime);
+
+	/// <summary>BRD Plan: Battle Voice (and so Finale and Raging Strikes) waits for the planned window.</summary>
+	private protected virtual bool HoldBurst => false;
+
+	/// <summary>FRU potion burst due. BRD Plan reads it from the plan's potion windows instead of PotionTimes.</summary>
+	private protected virtual bool PotionNow => DataCenter.IsInFRU && PotionDue(CombatTime, PotionTimes);
 
 	#endregion
 
@@ -90,7 +101,7 @@ public sealed class BRD_Reborn : BardRotation
 		}
 
 		// FRU only: top logs pot 1.5-4s before Raging Strikes in the listed bursts, never on the countdown.
-		if (IsBurst && DataCenter.IsInFRU && PotionDue(CombatTime, PotionTimes) && RagingStrikesPvE.EnoughLevel
+		if (IsBurst && PotionNow && RagingStrikesPvE.EnoughLevel
 			&& (RagingStrikesPvE.Cooldown.WillHaveOneChargeGCD(1) || HasRagingStrikes) && UseBurstMedicine(out act))
 		{
 			return true;
@@ -317,6 +328,13 @@ public sealed class BRD_Reborn : BardRotation
 
 		if (Song == Song.None)
 		{
+			// After a downtime, a Minuet a few seconds out beats starting Paeon: Paeon there put every P5 burst in Army's.
+			if (FirstSong == SongTrack.WanderersMinuet && TheWanderersMinuetPvE.EnoughLevel
+				&& TheWanderersMinuetPvE.Cooldown.IsCoolingDown && TheWanderersMinuetPvE.Cooldown.RecastTimeRemain < 8f)
+			{
+				return false;
+			}
+
 			if (TrySongTrackAction(FirstSong, out act))
 			{
 				return true;
@@ -376,9 +394,15 @@ public sealed class BRD_Reborn : BardRotation
 			return true;
 		}
 
+		if (PaddingFatebreaker)
+		{
+			act = null;
+			return false;
+		}
+
 		if (IsBurst && Song != Song.None && MagesBalladPvE.EnoughLevel)
 		{
-			if (((!RadiantFinalePvE.EnoughLevel && !RagingStrikesPvE.Cooldown.IsCoolingDown)
+			if (!HoldBurst && ((!RadiantFinalePvE.EnoughLevel && !RagingStrikesPvE.Cooldown.IsCoolingDown)
 					|| (RadiantFinalePvE.EnoughLevel && !RadiantFinalePvE.Cooldown.IsCoolingDown && RagingStrikesPvE.EnoughLevel && (!RagingStrikesPvE.Cooldown.IsCoolingDown || RagingStrikesPvE.Cooldown.WillHaveOneCharge(BuffAlignment))))
 					&& ((CurrentTarget?.HasStatus(true, StatusID.Windbite, StatusID.Stormbite) == true && CurrentTarget?.HasStatus(true, StatusID.VenomousBite, StatusID.CausticBite) == true) || DOTBarrage) && BattleVoicePvE.CanUse(out act))
 			{
@@ -438,7 +462,8 @@ public sealed class BRD_Reborn : BardRotation
 		}
 
 		// Waits for Raging Strikes only while burst is on; with Auto Burst off Raging Strikes never goes and Empyreal never would.
-		if ((!IsBurst || RagingStrikesPvE.Cooldown.IsCoolingDown || !RagingStrikesPvE.Cooldown.WillHaveOneCharge(15)) && Song != Song.None && EmpyrealArrowPvE.CanUse(out act))
+		// Same while the burst waits for its planned window: Empyreal would sit for the whole wait.
+		if ((!IsBurst || HoldBurst || RagingStrikesPvE.Cooldown.IsCoolingDown || !RagingStrikesPvE.Cooldown.WillHaveOneCharge(15)) && Song != Song.None && EmpyrealArrowPvE.CanUse(out act))
 		{
 			return true;
 		}
@@ -506,6 +531,12 @@ public sealed class BRD_Reborn : BardRotation
 	#region GCD Logic
 	protected override bool GeneralGCD(out IAction? act)
 	{
+		if (PaddingFatebreaker)
+		{
+			act = null;
+			return false;
+		}
+
 		if (IronJawsPvE.CanUse(out act))
 		{
 			return true;
@@ -526,6 +557,20 @@ public sealed class BRD_Reborn : BardRotation
 			return true;
 		}
 
+		// Blast Arrow Ready lasts 10s; Resonant, Encore and Apex keep 30s. Waiting on Barrage lost it twice today.
+		if (BlastArrowPvE.CanUse(out act))
+		{
+			return true;
+		}
+
+		// A Hawk's Eye proc blocks Barrage (its Refulgent would eat both). In burst, spend the proc first so Barrage lands in buffs:
+		// at 8:33 the proc sat behind Apex and Encore and held Barrage 17s, out of the window.
+		if (HasRagingStrikes && HasHawksEye && BarragePvE.EnoughLevel && !BarragePvE.Cooldown.IsCoolingDown
+			&& (ShadowbitePvE.CanUse(out act) || RefulgentArrowPvE.CanUse(out act, skipComboCheck: true)))
+		{
+			return true;
+		}
+
 		if (ResonantArrowPvE.CanUse(out act))
 		{
 			return true;
@@ -539,19 +584,6 @@ public sealed class BRD_Reborn : BardRotation
 		if (RadiantEncorePvE.CanUse(out act, skipComboCheck: true))
 		{
 			if (InBurstStatus || StatusHelper.PlayerWillStatusEndGCD(2, 0, true, StatusID.RadiantEncoreReady))
-			{
-				return true;
-			}
-		}
-
-		if (BlastArrowPvE.CanUse(out act))
-		{
-			if (!HasRagingStrikes)
-			{
-				return true;
-			}
-
-			if (HasRagingStrikes && BarragePvE.Cooldown.IsCoolingDown)
 			{
 				return true;
 			}
@@ -674,16 +706,6 @@ public sealed class BRD_Reborn : BardRotation
 			return false;
 		}
 
-		if (QuickNockPvE.CanUse(out _) && SoulVoice >= SoulVoiceConfig)
-		{
-			return true;
-		}
-
-		if (LadonsbitePvE.CanUse(out _) && SoulVoice >= SoulVoiceConfig)
-		{
-			return true;
-		}
-
 		if (CurrentTarget?.WillStatusEndGCD(1, 1, true, StatusID.Windbite, StatusID.Stormbite, StatusID.VenomousBite, StatusID.CausticBite) ?? false)
 		{
 			return false;
@@ -708,6 +730,12 @@ public sealed class BRD_Reborn : BardRotation
 		if (SoulVoice >= SoulVoiceConfig && BattleVoicePvE.Cooldown.WillHaveOneCharge(25))
 		{
 			return false;
+		}
+
+		// AoE only after the burst holds: with two P4 bosses this fired Apex 15s before the burst.
+		if ((QuickNockPvE.CanUse(out _) || LadonsbitePvE.CanUse(out _)) && SoulVoice >= SoulVoiceConfig)
+		{
+			return true;
 		}
 
 		if (SoulVoice >= 80 && HasRagingStrikes && StatusHelper.PlayerWillStatusEnd(10, false, StatusID.RagingStrikes))

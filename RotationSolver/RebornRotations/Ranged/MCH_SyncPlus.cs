@@ -79,6 +79,13 @@ public class MCH_SyncPlus : MCH_Reborn
 		Tooltip = "Choose whether Wildfire leads Full Metal Field or follows the Reborn default ordering.")]
 	private protected MCHSyncPlusWildfireWeave WildfireWeave { get; set; } = MCHSyncPlusWildfireWeave.EveryBurst;
 
+	[RotationConfig(CombatType.PvE, Name = "FRU: pad Fatebreaker",
+		Section = "Burst", Order = 130,
+		Tooltip = "FRU P1 must end on Fatebreaker's last cast (its enrage). Under 5% the rotation stops while the party would kill it 5s+ early, and always hits in the last 5s. The Queen and a running Wildfire still deal damage.")]
+	protected bool PadFatebreaker { get; set; } = true;
+
+	private bool PaddingFatebreaker => PadFatebreaker && FRUPad.Padding(CurrentTarget, CombatTime);
+
 	[RotationConfig(CombatType.PvE, Name = "Use a second potion",
 		Section = "Potions", Order = 210,
 		Tooltip = "Allows a later potion when Wildfire is ready inside the configured timing window.")]
@@ -836,6 +843,12 @@ public class MCH_SyncPlus : MCH_Reborn
 	/// </summary>
 	protected override bool GeneralGCD(out IAction? act)
 	{
+		if (PaddingFatebreaker)
+		{
+			act = null;
+			return false;
+		}
+
 		// A downtime Barrel's Full Metal Field opens the uptime (top FRU logs: first GCD back, 3/3 kills).
 		if (UnclaimedBarrelBuffs && HasFullMetalMachinist && FullMetalFieldPvE.CanUse(out act, skipTTKCheck: true))
 		{
@@ -940,6 +953,13 @@ public class MCH_SyncPlus : MCH_Reborn
 
 	protected override bool EmergencyAbility(IAction nextGCD, out IAction? act)
 	{
+		// Hypercharge and Wildfire live here.
+		if (PaddingFatebreaker)
+		{
+			act = null;
+			return false;
+		}
+
 		// Through the Decision cache, not a bare UpdateBurstTracker() call. RotationSolver re-runs
 		// EmergencyAbility several times per real frame for its next-action preview, so a direct
 		// call ran the tracker several times per frame, outside the per-frame stamp that exists to
@@ -1025,6 +1045,12 @@ public class MCH_SyncPlus : MCH_Reborn
 	/// </summary>
 	protected override bool AttackAbility(IAction nextGCD, out IAction? act)
 	{
+		if (PaddingFatebreaker)
+		{
+			act = null;
+			return false;
+		}
+
 		if (MCHSyncPlusPolicy.ShouldWeaveWildfireBeforeFullMetal(
 				WildfireWeave == MCHSyncPlusWildfireWeave.EveryBurst,
 				ShouldUseWildfire,

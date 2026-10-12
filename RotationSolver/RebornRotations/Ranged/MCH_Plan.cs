@@ -27,6 +27,16 @@ public sealed class MCH_Plan : MCH_SyncPlus
 	private DateTime _polledAt = DateTime.MinValue;
 	private float _lastEncounterTime;
 
+	/// <summary>
+	/// A Burst window was seen this pull, so the plan is active. BossMod cannot see past a kill-gated phase end: from the last P4
+	/// window until P5 starts it reports nothing (replayed), and reading that as "no plan" handed Wildfire and the timed potions
+	/// back to MCH Sync's fallbacks in the P4->P5 gap.
+	/// </summary>
+	private bool _planSeen;
+
+	/// <summary>Stands in for the next window while the plan is active but BossMod shows none (treated like a far-off window).</summary>
+	private static readonly MCHPlanWindow NextPhaseWindow = new(999f, 1019f, false);
+
 	/// <summary>Planned Burst entries, refreshed once a second, with times corrected for the age of the poll.</summary>
 	private IEnumerable<MCHPlanWindow> Windows
 	{
@@ -49,6 +59,7 @@ public sealed class MCH_Plan : MCH_SyncPlus
 						.Where(a => a.TrackName == "Burst" && a.ModuleType.EndsWith("ClassMCHUtility", StringComparison.Ordinal))
 						.ToList()
 					: [];
+				_planSeen = InCombat && (_planSeen || _windows.Count > 0);
 			}
 			var age = (float)(now - _polledAt).TotalSeconds;
 			return _windows.Select(a => new MCHPlanWindow(a.ActivationIn - age, a.WindowEndIn - age, a.OptionName == "WindowWithPotion"))
@@ -56,7 +67,8 @@ public sealed class MCH_Plan : MCH_SyncPlus
 		}
 	}
 
-	private MCHPlanWindow? CurrentWindow => Windows.OrderBy(w => w.StartIn).Cast<MCHPlanWindow?>().FirstOrDefault();
+	private MCHPlanWindow? CurrentWindow => Windows.OrderBy(w => w.StartIn).Cast<MCHPlanWindow?>().FirstOrDefault()
+		?? (_planSeen ? NextPhaseWindow : null);
 
 	private protected override MCHSyncPlusDecision? PlannedDecision()
 	{

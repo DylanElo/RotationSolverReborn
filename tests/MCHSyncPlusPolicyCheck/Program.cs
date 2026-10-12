@@ -156,6 +156,7 @@ var configMetadata = new[]
 	ConfigMetadata(rotationType, "SyncPlusBurstPlan"),
 	ConfigMetadata(rotationType, "UseEncounterTimeline"),
 	ConfigMetadata(rotationType, "WildfireWeave"),
+	ConfigMetadata(rotationType, "PadFatebreaker"),
 	ConfigMetadata(rotationType, "UseSecondBurstMedicine"),
 	ConfigMetadata(rotationType, "SecondMedicineTime"),
 	ConfigMetadata(rotationType, "AdvancedTiming"),
@@ -182,8 +183,8 @@ static int NamedInt(CustomAttributeData attribute, string name)
 	=> attribute.NamedArguments.FirstOrDefault(argument => argument.MemberName == name)
 		.TypedValue.Value is int value ? value : int.MaxValue;
 
-Check("MCH Sync exposes the expected configuration surface", 19, configMetadata.Length);
-Check("default configuration view is reduced to seven controls", 7,
+Check("MCH Sync exposes the expected configuration surface", 20, configMetadata.Length);
+Check("default configuration view is reduced to eight controls", 8,
 	configMetadata.Count(attribute => string.IsNullOrEmpty(NamedString(attribute, "Parent"))));
 Check("every MCH setting has contextual help", true,
 	configMetadata.All(attribute => !string.IsNullOrWhiteSpace(NamedString(attribute, "Tooltip"))));
@@ -1093,6 +1094,27 @@ var apexCalls = CalledMethods(brd.GetMethod("CanUseApexArrow", BindingFlags.Inst
 Check("Auto Burst off releases Apex before the Raging Strikes / Battle Voice waits", true,
 	apexCalls.IndexOf("get_IsBurst") >= 0 && apexCalls.IndexOf("get_IsBurst") < apexCalls.IndexOf("get_RagingStrikesPvE")
 	&& apexCalls.IndexOf("get_IsBurst") < apexCalls.IndexOf("get_BattleVoicePvE"));
+Check("AoE Apex release comes after the Battle Voice hold", true,
+	apexCalls.IndexOf("get_LadonsbitePvE") > apexCalls.IndexOf("get_BattleVoicePvE"));
+Check("Blast Arrow is checked before Resonant Arrow", true,
+	brdGcdCalls.IndexOf("get_BlastArrowPvE") >= 0 && brdGcdCalls.IndexOf("get_BlastArrowPvE") < brdGcdCalls.IndexOf("get_ResonantArrowPvE"));
+Check("padding stops every GCD", 0, brdGcdCalls.IndexOf("get_PaddingFatebreaker"));
+foreach (var name in new[] { "GeneralGCD", "EmergencyAbility", "AttackAbility" })
+	Check($"MCH padding gates {name} first", 0,
+		CalledMethods(rotationType.GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)!).ToList().IndexOf("get_PaddingFatebreaker"));
+var pad = Method(assembly.GetType("RotationSolver.RebornRotations.FRUPad", true)!, "ShouldPad");
+Check("pad: party kills Fatebreaker 6s before the cast ends", true, pad.Invoke(null, [12f, 6f]));
+Check("pad: party kills it 3s early, too close to hold", false, pad.Invoke(null, [9f, 6f]));
+Check("pad: party too slow, keep hitting", false, pad.Invoke(null, [9f, 12f]));
+Check("pad: last 5s of the cast always goes", false, pad.Invoke(null, [4.5f, 0.5f]));
+Check("pad: HP not dropping, hit", false, pad.Invoke(null, [12f, float.NaN]));
+var brdPlanOpen = Method(assembly.GetType($"{ns}BRD_Plan", true)!, "IsOpen");
+Check("BRD Plan: window reached opens the burst", true, brdPlanOpen.Invoke(null, [0f, false]));
+Check("BRD Plan: 5s early without party buffs holds", false, brdPlanOpen.Invoke(null, [5f, false]));
+Check("BRD Plan: party buffs 5s early pull the window in", true, brdPlanOpen.Invoke(null, [5f, true]));
+Check("BRD Plan: party buffs 20s early do not", false, brdPlanOpen.Invoke(null, [20f, true]));
+Check("BRD Reborn holds nothing for a plan", true,
+	CalledMethods(brd.GetProperty("HoldBurst", BindingFlags.Instance | BindingFlags.NonPublic)!.GetMethod!).All(m => m != "get_Buffs"));
 
 if (failures > 0)
 {
