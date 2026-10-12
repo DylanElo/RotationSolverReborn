@@ -768,8 +768,10 @@ public class MCH_SyncPlus : MCH_Reborn
 	/// </summary>
 	protected override bool ShouldUseHypercharge
 		=> MCHSyncPlusPolicy.ShouldUseHypercharge(
-			// Banked Heat is only dumped when sitting capped would waste more than the 50 it costs.
-			ObjectiveCarries ? ObjectiveBanked && !(Heat == 100 && TargetTimeLeft > 30f) : TargetDying,
+			// Heat banks only once the check is met (BankingTools), not when it is predicted soon: top FRU MCH logs
+			// Hypercharge 1-9s before Usurper/Oracle cross 20% (5/8) and into the P4 kill (4/8). Banked Heat is only
+			// dumped when sitting capped would waste more than the 50 it costs.
+			ObjectiveCarries ? BankingTools && !(Heat == 100 && TargetTimeLeft > 30f) : TargetDying,
 			HasWildfire,
 			DowntimeWithin(GCDTime(3)),
 			Decision.Downtime == MCHSyncPlusDowntimeAction.HoldCeiling,
