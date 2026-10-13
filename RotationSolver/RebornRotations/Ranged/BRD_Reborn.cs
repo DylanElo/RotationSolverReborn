@@ -68,6 +68,17 @@ public class BRD_Reborn : BardRotation
 
 	private bool PaddingFatebreaker => PadFatebreaker && FRUPad.Padding(CurrentTarget, CombatTime);
 
+	/// <summary>
+	/// A DoT or Iron Jaws pays back the potency it gives up against a filler after ~8s of ticks (Stormbite: -120 vs Burst Shot,
+	/// ~46 per tick with Hawk's Eye procs). Closer to a BossMod downtime it is a loss: top FRU Bards skip them on the CT return.
+	/// </summary>
+	// ponytail: one break-even for all DoTs (Caustic pays back sooner, ~5s); BossMod downtime only, not target deaths.
+	internal const float DoTBreakEven = 8f;
+
+	internal static bool DoTPaysOff(float downtimeIn) => downtimeIn >= DoTBreakEven;
+
+	private static bool UptimeForDoT => DoTPaysOff(BMRDowntimeIn);
+
 	/// <summary>BRD Plan: Battle Voice (and so Finale and Raging Strikes) waits for the planned window.</summary>
 	private protected virtual bool HoldBurst => false;
 
@@ -546,12 +557,12 @@ public class BRD_Reborn : BardRotation
 			return false;
 		}
 
-		if (IronJawsPvE.CanUse(out act))
+		if (UptimeForDoT && IronJawsPvE.CanUse(out act))
 		{
 			return true;
 		}
 
-		if (IronJawsPvE.CanUse(out act, skipStatusProvideCheck: true) && (IronJawsPvE.Target.Target?.WillStatusEnd(30, true, IronJawsPvE.Setting.TargetStatusProvide ?? []) ?? false))
+		if (UptimeForDoT && IronJawsPvE.CanUse(out act, skipStatusProvideCheck: true) && (IronJawsPvE.Target.Target?.WillStatusEnd(30, true, IronJawsPvE.Setting.TargetStatusProvide ?? []) ?? false))
 		{
 			if (StatusHelper.PlayerHasStatus(true, StatusID.BattleVoice, StatusID.RadiantFinale, StatusID.RagingStrikes) && StatusHelper.PlayerWillStatusEndGCD(1, 1, true, StatusID.BattleVoice, StatusID.RadiantFinale, StatusID.RagingStrikes))
 			{
@@ -600,7 +611,7 @@ public class BRD_Reborn : BardRotation
 
 		// DoTs before the AoE fillers: with Ladonsbite at 2 targets the P4 pair never got DoTs, and Battle Voice
 		// waits for both DoTs on the target, so P4 never burst.
-		if (StormbitePvE.EnoughLevel)
+		if (StormbitePvE.EnoughLevel && UptimeForDoT)
 		{
 			if (StormbitePvE.CanUse(out act))
 			{
@@ -613,7 +624,7 @@ public class BRD_Reborn : BardRotation
 				}
 			}
 		}
-		if (CausticBitePvE.EnoughLevel)
+		if (CausticBitePvE.EnoughLevel && UptimeForDoT)
 		{
 			if (CausticBitePvE.CanUse(out act))
 			{
@@ -627,7 +638,7 @@ public class BRD_Reborn : BardRotation
 			}
 		}
 
-		if (!StormbitePvE.EnoughLevel)
+		if (!StormbitePvE.EnoughLevel && UptimeForDoT)
 		{
 			if (WindbitePvE.CanUse(out act))
 			{
@@ -644,7 +655,7 @@ public class BRD_Reborn : BardRotation
 				}
 			}
 		}
-		if (!CausticBitePvE.EnoughLevel)
+		if (!CausticBitePvE.EnoughLevel && UptimeForDoT)
 		{
 			if (VenomousBitePvE.CanUse(out act))
 			{

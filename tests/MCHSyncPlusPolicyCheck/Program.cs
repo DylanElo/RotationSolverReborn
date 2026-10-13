@@ -1122,6 +1122,10 @@ Check("BRD Plan: missed window bursts in its late grace", false, brdPlanHolds.In
 Check("BRD Plan: no visible window with a plan holds", true, brdPlanHolds.Invoke(null, [null, false, true, false]));
 Check("BRD Plan: late grace outranks the kill-gated hold", false, brdPlanHolds.Invoke(null, [null, false, true, true]));
 Check("BRD Plan: no plan this pull never holds", false, brdPlanHolds.Invoke(null, [null, false, false, false]));
+var brdDoTPays = Method(assembly.GetType($"{ns}BRD_Reborn", true)!, "DoTPaysOff");
+Check("BRD: no DoT 5s before downtime", false, brdDoTPays.Invoke(null, [5f]));
+Check("BRD: DoT 17s before downtime (CT return length)", true, brdDoTPays.Invoke(null, [17f]));
+Check("BRD: DoT with no downtime predicted", true, brdDoTPays.Invoke(null, [float.MaxValue]));
 Check("BRD Reborn holds nothing for a plan", true,
 	CalledMethods(brd.GetProperty("HoldBurst", BindingFlags.Instance | BindingFlags.NonPublic)!.GetMethod!).All(m => m != "get_Buffs"));
 
