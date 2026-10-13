@@ -79,10 +79,6 @@ public sealed class BRD_Plan : BRD_Reborn
 	/// <summary>A window closed under LateGrace ago. If its burst went, Battle Voice is cooling and this changes nothing.</summary>
 	private bool InLateGrace => CurrentWindow is not { StartIn: <= 0f } && DateTime.Now < _windowEnd.AddSeconds(LateGrace);
 
-	private static bool PartyRaidBuffUp => Buffs.Any(b => b.JobAbbr != "BRD" && (b.Type == StatusType.Buff
-		? StatusHelper.PlayerHasStatus(false, b.Ids)
-		: CurrentTarget?.HasStatus(false, b.Ids) == true));
-
 	/// <summary>No plan this pull plays like BRD Reborn; with one, nothing ahead means wait for the next window.</summary>
 	private protected override bool HoldBurst => HoldsBurst(CurrentWindow?.StartIn, PartyRaidBuffUp, _planSeen, InLateGrace);
 

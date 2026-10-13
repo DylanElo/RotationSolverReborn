@@ -79,6 +79,11 @@ public class BRD_Reborn : BardRotation
 
 	private static bool UptimeForDoT => DoTPaysOff(BMRDowntimeIn);
 
+	/// <summary>Another job's raid buff is up (or its debuff is on the target): the party is bursting now.</summary>
+	private protected static bool PartyRaidBuffUp => Buffs.Any(b => b.JobAbbr != "BRD" && (b.Type == StatusType.Buff
+		? StatusHelper.PlayerHasStatus(false, b.Ids)
+		: CurrentTarget?.HasStatus(false, b.Ids) == true));
+
 	/// <summary>BRD Plan: Battle Voice (and so Finale and Raging Strikes) waits for the planned window.</summary>
 	private protected virtual bool HoldBurst => false;
 
@@ -539,9 +544,11 @@ public class BRD_Reborn : BardRotation
 
 		if (IsBurst && Song != Song.None && MagesBalladPvE.EnoughLevel)
 		{
+			// DoTs on the target gate Battle Voice only while nobody else is bursting: on FRU's crystals (fresh ~20s adds)
+			// waiting for Stormbite+Caustic put it 8s behind Arcane Circle and Battle Litany.
 			if (!HoldBurst && ((!RadiantFinalePvE.EnoughLevel && !RagingStrikesPvE.Cooldown.IsCoolingDown)
 					|| (RadiantFinalePvE.EnoughLevel && !RadiantFinalePvE.Cooldown.IsCoolingDown && RagingStrikesPvE.EnoughLevel && (!RagingStrikesPvE.Cooldown.IsCoolingDown || RagingStrikesPvE.Cooldown.WillHaveOneCharge(BuffAlignment))))
-					&& ((CurrentTarget?.HasStatus(true, StatusID.Windbite, StatusID.Stormbite) == true && CurrentTarget?.HasStatus(true, StatusID.VenomousBite, StatusID.CausticBite) == true) || DOTBarrage) && BattleVoicePvE.CanUse(out act))
+					&& ((CurrentTarget?.HasStatus(true, StatusID.Windbite, StatusID.Stormbite) == true && CurrentTarget?.HasStatus(true, StatusID.VenomousBite, StatusID.CausticBite) == true) || DOTBarrage || PartyRaidBuffUp) && BattleVoicePvE.CanUse(out act))
 			{
 				return true;
 			}
