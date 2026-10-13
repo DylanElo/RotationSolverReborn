@@ -197,17 +197,38 @@ public class BRD_Reborn : BardRotation
 
 	private ulong _dotTargetId;
 	private float _dotRemain;
-	private int _dotSnapshot = -1;
+	private float _dotSnapshot = 1f;
 
 	/// <summary>
-	/// Damage buffs a DoT applied now would snapshot: tracked party raid buffs (Battle Voice and Finale included), Raging Strikes, potion.
+	/// Approximate damage each tracked buff adds to a DoT tick. Crit and direct-hit buffs are converted at ~60% crit / 25% DH damage.
 	/// </summary>
-	// ponytail: a count, not the real multiplier (Finale 2-6%, Embolden 5% weigh the same as Raging Strikes 15%).
-	private static int BuffSnapshot => Buffs.Count(b => b.Type == StatusType.Buff
-			? StatusHelper.PlayerHasStatus(false, b.Ids)
-			: CurrentTarget?.HasStatus(false, b.Ids) == true)
-		+ (HasRagingStrikes ? 1 : 0)
-		+ (StatusHelper.PlayerHasStatus(true, StatusID.Medicated) ? 1 : 0);
+	// ponytail: fixed values; Finale assumed at 3 Codas (2 Codas is 4%), potion at ~6% from main stat. Tune here if logs disagree.
+	private static readonly Dictionary<string, float> BuffWeights = new()
+	{
+		["Divination"] = 0.06f, ["Battle Voice"] = 0.05f, ["Radiant Finale"] = 0.06f, ["Technical Finish"] = 0.05f,
+		["Battle Litany"] = 0.06f, ["Brotherhood"] = 0.05f, ["Mug"] = 0.05f, ["Dokumori"] = 0.05f, ["Starry Muse"] = 0.05f,
+		["Arcane Circle"] = 0.03f, ["Embolden"] = 0.05f, ["Chain Stratagem"] = 0.06f, ["Searing Light"] = 0.05f,
+	};
+
+	private const float RagingStrikesWeight = 0.15f;
+	private const float MedicatedWeight = 0.06f;
+
+	/// <summary>Damage multiplier a DoT applied now would snapshot: tracked raid buffs (own Battle Voice and Finale included), Raging Strikes, potion.</summary>
+	private static float BuffSnapshot
+	{
+		get
+		{
+			var multiplier = 1f;
+			foreach (var b in Buffs)
+			{
+				var active = b.Type == StatusType.Buff ? StatusHelper.PlayerHasStatus(false, b.Ids) : CurrentTarget?.HasStatus(false, b.Ids) == true;
+				if (active && BuffWeights.TryGetValue(b.Name, out var weight)) multiplier *= 1f + weight;
+			}
+			if (HasRagingStrikes) multiplier *= 1f + RagingStrikesWeight;
+			if (StatusHelper.PlayerHasStatus(true, StatusID.Medicated)) multiplier *= 1f + MedicatedWeight;
+			return multiplier;
+		}
+	}
 
 	/// <summary>Records the buffs present when our Stormbite on the target was last applied or refreshed (its timer jumped up).</summary>
 	private void TrackDotSnapshot()
@@ -217,7 +238,7 @@ public class BRD_Reborn : BardRotation
 		if (target == null || target.GameObjectId != _dotTargetId)
 		{
 			_dotTargetId = target?.GameObjectId ?? 0;
-			_dotSnapshot = -1;
+			_dotSnapshot = 1f;
 		}
 		else if (DotRefreshed(_dotRemain, remain))
 		{
@@ -228,11 +249,17 @@ public class BRD_Reborn : BardRotation
 
 	internal static bool DotRefreshed(float before, float now) => now > before + 2f;
 
+	private const float DotPotencyPerSecond = 15f; // Stormbite 25 + Caustic Bite 20 every 3s
+	private const float IronJawsLoss = 120f;       // Iron Jaws 100 against Burst Shot 220
+	private const float DotDuration = 45f;
+
 	/// <summary>
-	/// The burst-end Iron Jaws pays (~-120 potency against a filler) only for a stronger snapshot. Without this it re-applied DoTs
-	/// already refreshed in the same burst (an Iron Jaws at the start leaves 25-30s at its end). Unknown snapshot (-1) refreshes.
+	/// The burst-end Iron Jaws re-applies both DoTs at the current multiplier for 45s. Gain: the remaining time at (now - old snapshot),
+	/// plus the rest of the 45s at (now - 1), which without it would tick after an unbuffed refresh. Cost: the clipped remaining time
+	/// brings the next Iron Jaws forward, ~IronJawsLoss * remain / 45. Unknown snapshot reads 1 (unbuffed).
 	/// </summary>
-	internal static bool SnapshotImproves(int now, int dotSnapshot) => dotSnapshot < 0 || now > dotSnapshot;
+	internal static bool BurstEndRefreshPays(float now, float dotSnapshot, float remain)
+		=> DotPotencyPerSecond * (remain * (now - dotSnapshot) + (DotDuration - remain) * (now - 1f)) > IronJawsLoss * remain / DotDuration;
 
 	/// <summary>Finale's least lead on the CT return to be back (110s) for P5's burst, which comes ~102-108s after the return.</summary>
 	internal const float StandaloneFinaleLead = 8f;
@@ -634,7 +661,8 @@ public class BRD_Reborn : BardRotation
 		}
 
 		if (UptimeForDoT && IronJawsPvE.CanUse(out act, skipStatusProvideCheck: true) && (IronJawsPvE.Target.Target?.WillStatusEnd(30, true, IronJawsPvE.Setting.TargetStatusProvide ?? []) ?? false)
-			&& SnapshotImproves(BuffSnapshot, IronJawsPvE.Target.Target?.GameObjectId == _dotTargetId ? _dotSnapshot : -1))
+			&& BurstEndRefreshPays(BuffSnapshot, IronJawsPvE.Target.Target?.GameObjectId == _dotTargetId ? _dotSnapshot : 1f,
+				IronJawsPvE.Target.Target?.StatusTime(true, StatusID.Stormbite, StatusID.Windbite) ?? 0f))
 		{
 			if (StatusHelper.PlayerHasStatus(true, StatusID.BattleVoice, StatusID.RadiantFinale, StatusID.RagingStrikes) && StatusHelper.PlayerWillStatusEndGCD(1, 1, true, StatusID.BattleVoice, StatusID.RadiantFinale, StatusID.RagingStrikes))
 			{
