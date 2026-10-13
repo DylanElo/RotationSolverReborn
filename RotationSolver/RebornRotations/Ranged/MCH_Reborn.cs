@@ -208,6 +208,9 @@ public class MCH_Reborn : MachinistRotation
 	/// <summary>Holds Barrel Stabilizer when its Hypercharged and Full Metal Machinist would have nothing to hit.</summary>
 	protected virtual bool ShouldHoldBarrel => false;
 
+	/// <summary>Barrel Stabilizer may go on cooldown without a committed burst (MCH Sync: FRU P3/P4).</summary>
+	protected virtual bool ShouldUseBarrelOnCooldown => false;
+
 	/// <summary>
 	/// Whether BossMod Reborn timeline data may influence this rotation at all. Every timeline
 	/// read in this class and its derivations routes through <see cref="DowntimeWithin"/> and
@@ -390,7 +393,7 @@ public class MCH_Reborn : MachinistRotation
 		// throw away Full Metal Field (945 effective potency). Worse, with Auto Burst off
 		// ShouldCommitPersonalBurst is false permanently, so an ungated Barrel Stabilizer would
 		// burn both buffs every 120s for nothing.
-		if (ShouldCommitPersonalBurst)
+		if (ShouldCommitPersonalBurst || ShouldUseBarrelOnCooldown)
 		{
 			var bmrBlockBarrel = DowntimeWithin(GCDTime(2));
 			if (!bmrBlockBarrel && !ShouldHoldBarrel && BarrelStabilizerPvE.CanUse(out act))

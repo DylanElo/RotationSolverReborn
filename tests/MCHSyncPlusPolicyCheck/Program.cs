@@ -1122,6 +1122,12 @@ Check("BRD Plan: missed window bursts in its late grace", false, brdPlanHolds.In
 Check("BRD Plan: no visible window with a plan holds", true, brdPlanHolds.Invoke(null, [null, false, true, false]));
 Check("BRD Plan: late grace outranks the kill-gated hold", false, brdPlanHolds.Invoke(null, [null, false, true, true]));
 Check("BRD Plan: no plan this pull never holds", false, brdPlanHolds.Invoke(null, [null, false, false, false]));
+var barrelPhase = Method(policy, "BarrelOnCooldownPhase");
+Check("Barrel on cooldown: P3 Oracle", true, barrelPhase.Invoke(null, [0x45A7u]));
+Check("Barrel on cooldown: P4 Usurper", true, barrelPhase.Invoke(null, [0x45A9u]));
+Check("Barrel on cooldown: P4 Oracle", true, barrelPhase.Invoke(null, [0x45ABu]));
+Check("Barrel on cooldown: not P2 Usurper", false, barrelPhase.Invoke(null, [0x459Fu]));
+Check("Barrel on cooldown: not P1 Fatebreaker", false, barrelPhase.Invoke(null, [0x459Bu]));
 var brdDoTPays = Method(assembly.GetType($"{ns}BRD_Reborn", true)!, "DoTPaysOff");
 Check("BRD: no DoT 5s before downtime", false, brdDoTPays.Invoke(null, [5f]));
 Check("BRD: DoT 17s before downtime (CT return length)", true, brdDoTPays.Invoke(null, [17f]));

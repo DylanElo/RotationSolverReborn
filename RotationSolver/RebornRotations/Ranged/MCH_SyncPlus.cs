@@ -643,6 +643,16 @@ public class MCH_SyncPlus : MCH_Reborn
 	/// <summary>Same target-life guard as Wildfire, unless another enemy is left to take the Hypercharge (M3 logs: Barrel at the kill).</summary>
 	protected override bool ShouldHoldBarrel => (TargetEndsBeforeWildfirePayload || TargetDying) && !QueenHasNextTarget;
 
+	/// <summary>
+	/// FRU P3/P4: Barrel goes on cooldown ahead of the buffs so it is back for the CT downtime Barrel (top MCH logs: P3 ~8:10,
+	/// P4 ~10:10-10:22, CT 12:10-12:22, ten Barrels to nine Wildfires; buff-gated it came back 12:43, after the CT return).
+	/// Its Full Metal Field and Hypercharged still wait for a burst within their 30s, else go as an unclaimed Barrel.
+	/// Wildfire still waits for live buffs.
+	/// </summary>
+	protected override bool ShouldUseBarrelOnCooldown => IsBurst && DataCenter.IsInFRU
+		&& SchedulerTarget is { } target && MCHSyncPlusPolicy.BarrelOnCooldownPhase(target.BaseId)
+		&& !ObjectiveBanked && !DowntimeWithin(WildfirePayloadWindow);
+
 	private float RequiredQueenLifetime => Math.Max(QueenExecutionWindow, AutomatonQueenPvE.EnoughLevel
 		? AutomatonQueenPvE.Config.TimeToKill : RookAutoturretPvE.Config.TimeToKill);
 	// Battery carries into the next phase, so a phase end is never a "last chance" Queen.
@@ -2015,6 +2025,9 @@ internal static class MCHSyncPlusPolicy
 
 	internal static bool ShouldPreSummonQueen(float uptimeIn, int battery, bool robotActive)
 		=> !robotActive && battery >= 50 && uptimeIn is > 0f and <= 4.5f;
+
+	/// <summary>FRU P3 Oracle and the P4 pair: the phases whose Barrel has to run ahead for the extra CT Barrel.</summary>
+	internal static bool BarrelOnCooldownPhase(uint baseId) => baseId is 0x45A7 or 0x45A9 or 0x45AB;
 
 	internal static bool BarrelBuffsUnclaimed(float buffsLeft, float? nextBurstIn)
 		=> buffsLeft > 0f && (nextBurstIn is not float next || next > buffsLeft);
