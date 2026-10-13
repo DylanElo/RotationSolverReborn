@@ -74,8 +74,11 @@ public class BRD_Reborn : BardRotation
 	/// <summary>Seconds until the planned burst window; only meaningful while HoldBurst.</summary>
 	private protected virtual float PlannedBurstIn => 0f;
 
-	/// <summary>A planned hold long enough that Sidewinder (60s recast) and refilled Soul Voice are back for the window.</summary>
-	private bool LongPlannedHold => HoldBurst && PlannedBurstIn >= 60f;
+	/// <summary>
+	/// A planned hold long enough that Sidewinder (60s recast) and refilled Soul Voice are back for the window,
+	/// even if party buffs pull it in by BRD Plan's 8s slide.
+	/// </summary>
+	private bool LongPlannedHold => HoldBurst && PlannedBurstIn >= 60f + BRD_Plan.WindowSlide;
 
 	/// <summary>FRU potion burst due. BRD Plan reads it from the plan's potion windows instead of PotionTimes.</summary>
 	private protected virtual bool PotionNow => DataCenter.IsInFRU && PotionDue(CombatTime, PotionTimes);

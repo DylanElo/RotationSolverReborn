@@ -71,8 +71,8 @@ public sealed class BRD_Plan : BRD_Reborn
 	/// <summary>No plan this pull plays like BRD Reborn; with one, nothing ahead means wait for the next window.</summary>
 	private protected override bool HoldBurst => CurrentWindow is { } w ? !IsOpen(w.StartIn, PartyRaidBuffUp) : _planSeen;
 
-	/// <summary>Nothing ahead with the plan seen means the next window is past BossMod's horizon: far off.</summary>
-	private protected override float PlannedBurstIn => CurrentWindow is { } w ? w.StartIn : _planSeen ? float.MaxValue : 0f;
+	/// <summary>No visible window (kill-gated phase end) is unknown timing, so it never counts as far off.</summary>
+	private protected override float PlannedBurstIn => CurrentWindow?.StartIn ?? 0f;
 
 	private protected override bool PotionNow => CurrentWindow is { } w
 		? w.Potion && IsOpen(w.StartIn, PartyRaidBuffUp)
