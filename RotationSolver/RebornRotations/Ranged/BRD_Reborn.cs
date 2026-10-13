@@ -195,6 +195,45 @@ public class BRD_Reborn : BardRotation
 
 	private uint _lastTargetBaseId;
 
+	private ulong _dotTargetId;
+	private float _dotRemain;
+	private int _dotSnapshot = -1;
+
+	/// <summary>
+	/// Damage buffs a DoT applied now would snapshot: tracked party raid buffs (Battle Voice and Finale included), Raging Strikes, potion.
+	/// </summary>
+	// ponytail: a count, not the real multiplier (Finale 2-6%, Embolden 5% weigh the same as Raging Strikes 15%).
+	private static int BuffSnapshot => Buffs.Count(b => b.Type == StatusType.Buff
+			? StatusHelper.PlayerHasStatus(false, b.Ids)
+			: CurrentTarget?.HasStatus(false, b.Ids) == true)
+		+ (HasRagingStrikes ? 1 : 0)
+		+ (StatusHelper.PlayerHasStatus(true, StatusID.Medicated) ? 1 : 0);
+
+	/// <summary>Records the buffs present when our Stormbite on the target was last applied or refreshed (its timer jumped up).</summary>
+	private void TrackDotSnapshot()
+	{
+		var target = CurrentTarget;
+		var remain = target?.StatusTime(true, StatusID.Stormbite, StatusID.Windbite) ?? 0f;
+		if (target == null || target.GameObjectId != _dotTargetId)
+		{
+			_dotTargetId = target?.GameObjectId ?? 0;
+			_dotSnapshot = -1;
+		}
+		else if (DotRefreshed(_dotRemain, remain))
+		{
+			_dotSnapshot = BuffSnapshot;
+		}
+		_dotRemain = remain;
+	}
+
+	internal static bool DotRefreshed(float before, float now) => now > before + 2f;
+
+	/// <summary>
+	/// The burst-end Iron Jaws pays (~-120 potency against a filler) only for a stronger snapshot. Without this it re-applied DoTs
+	/// already refreshed in the same burst (an Iron Jaws at the start leaves 25-30s at its end). Unknown snapshot (-1) refreshes.
+	/// </summary>
+	internal static bool SnapshotImproves(int now, int dotSnapshot) => dotSnapshot < 0 || now > dotSnapshot;
+
 	/// <summary>Finale's least lead on the CT return to be back (110s) for P5's burst, which comes ~102-108s after the return.</summary>
 	internal const float StandaloneFinaleLead = 8f;
 
@@ -587,12 +626,15 @@ public class BRD_Reborn : BardRotation
 			return false;
 		}
 
+		TrackDotSnapshot();
+
 		if (UptimeForDoT && IronJawsPvE.CanUse(out act))
 		{
 			return true;
 		}
 
-		if (UptimeForDoT && IronJawsPvE.CanUse(out act, skipStatusProvideCheck: true) && (IronJawsPvE.Target.Target?.WillStatusEnd(30, true, IronJawsPvE.Setting.TargetStatusProvide ?? []) ?? false))
+		if (UptimeForDoT && IronJawsPvE.CanUse(out act, skipStatusProvideCheck: true) && (IronJawsPvE.Target.Target?.WillStatusEnd(30, true, IronJawsPvE.Setting.TargetStatusProvide ?? []) ?? false)
+			&& SnapshotImproves(BuffSnapshot, IronJawsPvE.Target.Target?.GameObjectId == _dotTargetId ? _dotSnapshot : -1))
 		{
 			if (StatusHelper.PlayerHasStatus(true, StatusID.BattleVoice, StatusID.RadiantFinale, StatusID.RagingStrikes) && StatusHelper.PlayerWillStatusEndGCD(1, 1, true, StatusID.BattleVoice, StatusID.RadiantFinale, StatusID.RagingStrikes))
 			{

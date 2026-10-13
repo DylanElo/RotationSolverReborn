@@ -1142,6 +1142,15 @@ Check("BRD CT Finale: 1 Coda is too weak", false, soloFinale.Invoke(null, [true,
 Check("BRD CT Finale: BV ready means the normal burst", false, soloFinale.Invoke(null, [true, 9f, 3, false]));
 Check("BRD CT Finale: unknown downtime end", false, soloFinale.Invoke(null, [true, float.MaxValue, 3, true]));
 Check("BRD CT Finale: not outside FRU CT", false, soloFinale.Invoke(null, [false, 9f, 3, true]));
+var brdType = assembly.GetType($"{ns}BRD_Reborn", true)!;
+var snapImproves = Method(brdType, "SnapshotImproves");
+var dotRefreshed = Method(brdType, "DotRefreshed");
+Check("BRD IJ: same-burst snapshot (5 vs 5) does not refresh again", false, snapImproves.Invoke(null, [5, 5]));
+Check("BRD IJ: fading buffs (3 vs 5) do not refresh", false, snapImproves.Invoke(null, [3, 5]));
+Check("BRD IJ: DoTs from outside the burst (5 vs 1) refresh", true, snapImproves.Invoke(null, [5, 1]));
+Check("BRD IJ: unknown snapshot refreshes", true, snapImproves.Invoke(null, [2, -1]));
+Check("BRD IJ: timer jump 20s -> 45s is a refresh", true, dotRefreshed.Invoke(null, [20f, 45f]));
+Check("BRD IJ: ticking timer is not", false, dotRefreshed.Invoke(null, [20f, 19.9f]));
 var brdDoTPays = Method(assembly.GetType($"{ns}BRD_Reborn", true)!, "DoTPaysOff");
 Check("BRD: no DoT 5s before downtime", false, brdDoTPays.Invoke(null, [5f]));
 Check("BRD: DoT 17s before downtime (CT return length)", true, brdDoTPays.Invoke(null, [17f]));
