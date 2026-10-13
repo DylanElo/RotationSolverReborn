@@ -195,9 +195,8 @@ public class BRD_Reborn : BardRotation
 
 	private uint _lastTargetBaseId;
 
-	private ulong _dotTargetId;
-	private float _dotRemain;
-	private float _dotSnapshot = 1f;
+	/// <summary>Per enemy (the FRU P4 pair each carry their own DoTs): last seen Stormbite time left and the multiplier it snapshotted.</summary>
+	private readonly Dictionary<ulong, (float Remain, float Snapshot)> _dots = [];
 
 	/// <summary>
 	/// Approximate damage each tracked buff adds to a DoT tick. Crit and direct-hit buffs are converted at ~60% crit / 25% DH damage.
@@ -213,39 +212,49 @@ public class BRD_Reborn : BardRotation
 	private const float RagingStrikesWeight = 0.15f;
 	private const float MedicatedWeight = 0.06f;
 
-	/// <summary>Damage multiplier a DoT applied now would snapshot: tracked raid buffs (own Battle Voice and Finale included), Raging Strikes, potion.</summary>
-	private static float BuffSnapshot
+	/// <summary>
+	/// Damage multiplier a DoT applied on the target now would snapshot: tracked raid buffs (own Battle Voice and Finale included,
+	/// target debuffs read on that target), Raging Strikes, potion.
+	/// </summary>
+	private static float BuffSnapshotOn(IBattleChara? target)
 	{
-		get
+		var multiplier = 1f;
+		foreach (var b in Buffs)
 		{
-			var multiplier = 1f;
-			foreach (var b in Buffs)
-			{
-				var active = b.Type == StatusType.Buff ? StatusHelper.PlayerHasStatus(false, b.Ids) : CurrentTarget?.HasStatus(false, b.Ids) == true;
-				if (active && BuffWeights.TryGetValue(b.Name, out var weight)) multiplier *= 1f + weight;
-			}
-			if (HasRagingStrikes) multiplier *= 1f + RagingStrikesWeight;
-			if (StatusHelper.PlayerHasStatus(true, StatusID.Medicated)) multiplier *= 1f + MedicatedWeight;
-			return multiplier;
+			var active = b.Type == StatusType.Buff ? StatusHelper.PlayerHasStatus(false, b.Ids) : target?.HasStatus(false, b.Ids) == true;
+			if (active && BuffWeights.TryGetValue(b.Name, out var weight)) multiplier *= 1f + weight;
+		}
+		if (HasRagingStrikes) multiplier *= 1f + RagingStrikesWeight;
+		if (StatusHelper.PlayerHasStatus(true, StatusID.Medicated)) multiplier *= 1f + MedicatedWeight;
+		return multiplier;
+	}
+
+	/// <summary>
+	/// Records, per enemy, the multiplier present when our Stormbite was last applied or refreshed (its timer jumped up).
+	/// Every hostile is watched, so switching between the P4 pair keeps both snapshots. A DoT first seen already running reads 1.
+	/// </summary>
+	private void TrackDotSnapshots()
+	{
+		if (!InCombat)
+		{
+			_dots.Clear();
+			return;
+		}
+
+		foreach (var target in AllHostileTargets)
+		{
+			var remain = target.StatusTime(true, StatusID.Stormbite, StatusID.Windbite);
+			_dots[target.GameObjectId] = (remain, NextDotSnapshot(
+				_dots.TryGetValue(target.GameObjectId, out var dot) ? dot : null, remain, () => BuffSnapshotOn(target)));
 		}
 	}
 
-	/// <summary>Records the buffs present when our Stormbite on the target was last applied or refreshed (its timer jumped up).</summary>
-	private void TrackDotSnapshot()
-	{
-		var target = CurrentTarget;
-		var remain = target?.StatusTime(true, StatusID.Stormbite, StatusID.Windbite) ?? 0f;
-		if (target == null || target.GameObjectId != _dotTargetId)
-		{
-			_dotTargetId = target?.GameObjectId ?? 0;
-			_dotSnapshot = 1f;
-		}
-		else if (DotRefreshed(_dotRemain, remain))
-		{
-			_dotSnapshot = BuffSnapshot;
-		}
-		_dotRemain = remain;
-	}
+	/// <summary>One enemy's snapshot after a frame: re-read on a refresh, kept otherwise, 1 when first seen.</summary>
+	internal static float NextDotSnapshot((float Remain, float Snapshot)? seen, float remain, Func<float> current)
+		=> seen is not { } dot ? 1f : DotRefreshed(dot.Remain, remain) ? current() : dot.Snapshot;
+
+	private float DotSnapshotOn(IBattleChara? target)
+		=> target != null && _dots.TryGetValue(target.GameObjectId, out var dot) ? dot.Snapshot : 1f;
 
 	internal static bool DotRefreshed(float before, float now) => now > before + 2f;
 
@@ -653,7 +662,7 @@ public class BRD_Reborn : BardRotation
 			return false;
 		}
 
-		TrackDotSnapshot();
+		TrackDotSnapshots();
 
 		if (UptimeForDoT && IronJawsPvE.CanUse(out act))
 		{
@@ -661,7 +670,7 @@ public class BRD_Reborn : BardRotation
 		}
 
 		if (UptimeForDoT && IronJawsPvE.CanUse(out act, skipStatusProvideCheck: true) && (IronJawsPvE.Target.Target?.WillStatusEnd(30, true, IronJawsPvE.Setting.TargetStatusProvide ?? []) ?? false)
-			&& BurstEndRefreshPays(BuffSnapshot, IronJawsPvE.Target.Target?.GameObjectId == _dotTargetId ? _dotSnapshot : 1f,
+			&& BurstEndRefreshPays(BuffSnapshotOn(IronJawsPvE.Target.Target), DotSnapshotOn(IronJawsPvE.Target.Target),
 				IronJawsPvE.Target.Target?.StatusTime(true, StatusID.Stormbite, StatusID.Windbite) ?? 0f))
 		{
 			if (StatusHelper.PlayerHasStatus(true, StatusID.BattleVoice, StatusID.RadiantFinale, StatusID.RagingStrikes) && StatusHelper.PlayerWillStatusEndGCD(1, 1, true, StatusID.BattleVoice, StatusID.RadiantFinale, StatusID.RagingStrikes))

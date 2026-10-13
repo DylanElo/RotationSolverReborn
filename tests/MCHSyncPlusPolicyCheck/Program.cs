@@ -1149,6 +1149,15 @@ Check("BRD IJ: same +30% snapshot, 25s left still pays (20s more buffed)", true,
 Check("BRD IJ: same +15% snapshot, 28s left does not", false, refreshPays.Invoke(null, [1.15f, 1.15f, 28f]));
 Check("BRD IJ: unbuffed DoTs into a +30% burst pay", true, refreshPays.Invoke(null, [1.3f, 1f, 28f]));
 Check("BRD IJ: weaker buffs than the DoT's at 30s left do not", false, refreshPays.Invoke(null, [1.1f, 1.4f, 30f]));
+var nextSnap = Method(brdType, "NextDotSnapshot");
+Func<float> burst = () => 1.4f;
+// P4 pair: Usurper refreshed in burst (1.4); Oracle's DoTs, unbuffed, keep 1.0 while the rotation looks at Usurper.
+var usurper = (float)nextSnap.Invoke(null, [((float, float)?)(20f, 1f), 45f, burst])!;
+var oracle = (float)nextSnap.Invoke(null, [((float, float)?)(30f, 1f), 29.9f, burst])!;
+Check("BRD IJ per target: refreshed Usurper takes the burst snapshot", 1.4f, usurper);
+Check("BRD IJ per target: untouched Oracle keeps its own", 1f, oracle);
+Check("BRD IJ per target: Usurper ticking keeps 1.4", 1.4f, nextSnap.Invoke(null, [((float, float)?)(45f, 1.4f), 44.9f, (Func<float>)(() => 1f)]));
+Check("BRD IJ per target: first sighting reads 1", 1f, nextSnap.Invoke(null, [null, 30f, burst]));
 Check("BRD IJ: timer jump 20s -> 45s is a refresh", true, dotRefreshed.Invoke(null, [20f, 45f]));
 Check("BRD IJ: ticking timer is not", false, dotRefreshed.Invoke(null, [20f, 19.9f]));
 var brdDoTPays = Method(assembly.GetType($"{ns}BRD_Reborn", true)!, "DoTPaysOff");
