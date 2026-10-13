@@ -198,13 +198,19 @@ public class BRD_Reborn : BardRotation
 	/// <summary>Per enemy (the FRU P4 pair each carry their own DoTs): last seen Stormbite time left and the multiplier it snapshotted.</summary>
 	private readonly Dictionary<ulong, (float Remain, float Snapshot)> _dots = [];
 
+	/// <summary>Codas the current (or next) own Radiant Finale consumed; 0 when unknown.</summary>
+	private int _finaleCodas;
+
+	/// <summary>Radiant Finale is 2% per Coda; unknown (another Bard's, or none seen yet) reads as 3 Codas.</summary>
+	internal static float FinaleWeight(int codas) => 0.02f * (codas is >= 1 and <= 3 ? codas : 3);
+
 	/// <summary>
 	/// Approximate damage each tracked buff adds to a DoT tick. Crit and direct-hit buffs are converted at ~60% crit / 25% DH damage.
 	/// </summary>
-	// ponytail: fixed values; Finale assumed at 3 Codas (2 Codas is 4%), potion at ~6% from main stat. Tune here if logs disagree.
+	// ponytail: fixed values; potion at ~6% from main stat. Tune here if logs disagree. Finale is weighted by Codas, see FinaleWeight.
 	private static readonly Dictionary<string, float> BuffWeights = new()
 	{
-		["Divination"] = 0.06f, ["Battle Voice"] = 0.05f, ["Radiant Finale"] = 0.06f, ["Technical Finish"] = 0.05f,
+		["Divination"] = 0.06f, ["Battle Voice"] = 0.05f, ["Technical Finish"] = 0.05f,
 		["Battle Litany"] = 0.06f, ["Brotherhood"] = 0.05f, ["Mug"] = 0.05f, ["Dokumori"] = 0.05f, ["Starry Muse"] = 0.05f,
 		["Arcane Circle"] = 0.03f, ["Embolden"] = 0.05f, ["Chain Stratagem"] = 0.06f, ["Searing Light"] = 0.05f,
 	};
@@ -216,13 +222,15 @@ public class BRD_Reborn : BardRotation
 	/// Damage multiplier a DoT applied on the target now would snapshot: tracked raid buffs (own Battle Voice and Finale included,
 	/// target debuffs read on that target), Raging Strikes, potion.
 	/// </summary>
-	private static float BuffSnapshotOn(IBattleChara? target)
+	private float BuffSnapshotOn(IBattleChara? target)
 	{
 		var multiplier = 1f;
 		foreach (var b in Buffs)
 		{
 			var active = b.Type == StatusType.Buff ? StatusHelper.PlayerHasStatus(false, b.Ids) : target?.HasStatus(false, b.Ids) == true;
-			if (active && BuffWeights.TryGetValue(b.Name, out var weight)) multiplier *= 1f + weight;
+			if (!active) continue;
+			if (b.Name == "Radiant Finale") multiplier *= 1f + FinaleWeight(_finaleCodas);
+			else if (BuffWeights.TryGetValue(b.Name, out var weight)) multiplier *= 1f + weight;
 		}
 		if (HasRagingStrikes) multiplier *= 1f + RagingStrikesWeight;
 		if (StatusHelper.PlayerHasStatus(true, StatusID.Medicated)) multiplier *= 1f + MedicatedWeight;
@@ -235,6 +243,10 @@ public class BRD_Reborn : BardRotation
 	/// </summary>
 	private void TrackDotSnapshots()
 	{
+		// Codas only reach 0 when Finale consumes them, so the last nonzero count before the buff is the count it used.
+		var codas = Coda.Count(c => c != Song.None);
+		if (!HasRadiantFinale && codas > 0) _finaleCodas = codas;
+
 		if (!InCombat)
 		{
 			_dots.Clear();

@@ -1149,6 +1149,11 @@ Check("BRD IJ: same +30% snapshot, 25s left still pays (20s more buffed)", true,
 Check("BRD IJ: same +15% snapshot, 28s left does not", false, refreshPays.Invoke(null, [1.15f, 1.15f, 28f]));
 Check("BRD IJ: unbuffed DoTs into a +30% burst pay", true, refreshPays.Invoke(null, [1.3f, 1f, 28f]));
 Check("BRD IJ: weaker buffs than the DoT's at 30s left do not", false, refreshPays.Invoke(null, [1.1f, 1.4f, 30f]));
+var finaleWeight = Method(brdType, "FinaleWeight");
+Check("BRD Finale weight: 1 Coda 2%", 0.02f, finaleWeight.Invoke(null, [1]));
+Check("BRD Finale weight: 2 Codas 4% (CT standalone)", 0.04f, finaleWeight.Invoke(null, [2]));
+Check("BRD Finale weight: 3 Codas 6%", 0.06f, finaleWeight.Invoke(null, [3]));
+Check("BRD Finale weight: unknown reads 3 Codas", 0.06f, finaleWeight.Invoke(null, [0]));
 var nextSnap = Method(brdType, "NextDotSnapshot");
 Func<float> burst = () => 1.4f;
 // P4 pair: Usurper refreshed in burst (1.4); Oracle's DoTs, unbuffed, keep 1.0 while the rotation looks at Usurper.
