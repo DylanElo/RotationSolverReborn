@@ -109,6 +109,10 @@ public sealed class MCH_Plan : MCH_SyncPlus
 	}
 
 	/// <summary>Reassemble and the fallback paths align to the planned window instead of a learned cadence.</summary>
+	// The NextPhaseWindow stand-in (999s) reaches the downtime Barrel too, which reads it as "next burst far enough".
+	// In FRU that is what lets the CT Barrel fire (P5's window is hidden behind the P4 kill but really ~117s+ out).
+	// Do not turn unknown into null here: that kills the CT Barrel. It only misfires where a hidden window comes <110s
+	// after a downtime; fix that with a real lower bound for the hidden window, not by dropping the stand-in.
 	private protected override float? SecondsUntilExpectedPartyBurst
 		=> CurrentWindow is { StartIn: > 0f } window ? window.StartIn : base.SecondsUntilExpectedPartyBurst;
 }
