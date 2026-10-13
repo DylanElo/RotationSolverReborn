@@ -9,6 +9,14 @@ public sealed class BRD_DefaultPvP : BardRotation
 
 	[RotationConfig(CombatType.PvP, Name = "Use Warden's Paean on other players")]
 	public bool BRDEsuna2 { get; set; } = false;
+
+	[Range(0, 1, ConfigUnitType.Percent)]
+	[RotationConfig(CombatType.PvP, Name = "Dump all Harmonic Arrow charges when the target's HP is at or below")]
+	public float HarmonicExecutePercent { get; set; } = 0.4f;
+
+	[Range(0, 1, ConfigUnitType.Percent)]
+	[RotationConfig(CombatType.PvP, Name = "Use Bravery for its mitigation when your HP is below")]
+	public float BraveryDefensivePercent { get; set; } = 0.5f;
 	#endregion
 
 	#region oGCDs
@@ -59,9 +67,11 @@ public sealed class BRD_DefaultPvP : BardRotation
 			}
 		}
 
-		if (BraveryPvP.CanUse(out action))
+		// Bravery: hold for the big hits (or to survive), since it lasts 15s on a 30s recast.
+		if (InCombat && BraveryPvP.CanUse(out action))
 		{
-			if (InCombat)
+			if (Player?.GetHealthRatio() < BraveryDefensivePercent
+				|| nextGCD.IsTheSameTo(false, ActionID.HarmonicArrowPvP, ActionID.BlastArrowPvP, ActionID.PitchPerfectPvP))
 			{
 				return true;
 			}
@@ -80,7 +90,8 @@ public sealed class BRD_DefaultPvP : BardRotation
 
 	protected override bool AttackAbility(IAction nextGCD, out IAction? action)
 	{
-		if (RepellingShotPvP.CanUse(out action))
+		// Nocturne first: same Repertoire, no 10y backstep.
+		if (SilentNocturnePvP.CanUse(out action))
 		{
 			if (!StatusHelper.PlayerHasStatus(true, StatusID.Repertoire))
 			{
@@ -88,7 +99,7 @@ public sealed class BRD_DefaultPvP : BardRotation
 			}
 		}
 
-		if (SilentNocturnePvP.CanUse(out action))
+		if (RepellingShotPvP.CanUse(out action))
 		{
 			if (!StatusHelper.PlayerHasStatus(true, StatusID.Repertoire))
 			{
@@ -111,56 +122,6 @@ public sealed class BRD_DefaultPvP : BardRotation
 	#endregion
 
 	#region GCDs
-	protected override bool EmergencyGCD(IAction? nextGCD, out IAction? action)
-	{
-		if (BRDEsuna2 && TheWardensPaeanPvP.CanUse(out action))
-		{
-			return true;
-		}
-		if (StatusHelper.PlayerHasStatus(false, StatusHelper.PurifyPvPStatuses))
-		{
-			if (TheWardensPaeanPvP.CanUse(out action, targetOverride: TargetType.Self))
-			{
-				return true;
-			}
-		}
-
-		if (PurifyPvP.CanUse(out action))
-		{
-			if (Service.Config.PvpPurifyStun && StatusHelper.PlayerHasStatus(false, StatusID.Stun_1343))
-			{
-				return true;
-			}
-
-			if (Service.Config.PvpPurifyHeavy && StatusHelper.PlayerHasStatus(false, StatusID.Heavy_1344))
-			{
-				return true;
-			}
-
-			if (Service.Config.PvpPurifyBind && StatusHelper.PlayerHasStatus(false, StatusID.Bind_1345))
-			{
-				return true;
-			}
-
-			if (Service.Config.PvpPurifySilence && StatusHelper.PlayerHasStatus(false, StatusID.Silence_1347))
-			{
-				return true;
-			}
-
-			if (Service.Config.PvpPurifyDeepFreeze && StatusHelper.PlayerHasStatus(false, StatusID.DeepFreeze_3219))
-			{
-				return true;
-			}
-
-			if (Service.Config.PvpPurifyMiracleOfNature && StatusHelper.PlayerHasStatus(false, StatusID.MiracleOfNature))
-			{
-				return true;
-			}
-		}
-
-		return base.GeneralGCD(out action);
-	}
-
 	protected override bool GeneralGCD(out IAction? action)
 	{
 		if (!StatusHelper.PlayerHasStatus(true, StatusID.FrontlinersMarch))
@@ -172,6 +133,13 @@ public sealed class BRD_DefaultPvP : BardRotation
 		}
 
 		if (HarmonicArrowPvP.CanUse(out action))
+		{
+			return true;
+		}
+
+		// Extra Harmonic charges add less per charge, but the GCDs they save are Powerful Shots,
+		// so total damage is the same either way. Dumping early on a low target costs nothing.
+		if (HarmonicArrowPvP.CanUse(out action, usedUp: true) && HarmonicArrowPvP.Target.Target.GetHealthRatio() <= HarmonicExecutePercent)
 		{
 			return true;
 		}

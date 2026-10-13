@@ -76,7 +76,9 @@ public class SGE_DefaultPVP : SageRotation
 			return true;
 		}
 
-		if (EukrasiaPvP.CanUse(out action, usedUp: true) && InCombat && !Target.HasStatus(true, StatusID.EukrasianDosisIii_3108))
+		// Check the DoT on the enemy Dosis would hit, not the hard target (which falls back to the player).
+		if (InCombat && DosisIiiPvP.CanUse(out _) && !DosisIiiPvP.Target.Target.HasStatus(true, StatusID.EukrasianDosisIii_3108)
+			&& EukrasiaPvP.CanUse(out action, usedUp: true))
 		{
 			return true;
 		}
