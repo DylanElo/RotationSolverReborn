@@ -1116,6 +1116,12 @@ Check("BRD Plan: window reached opens the burst", true, brdPlanOpen.Invoke(null,
 Check("BRD Plan: 5s early without party buffs holds", false, brdPlanOpen.Invoke(null, [5f, false]));
 Check("BRD Plan: party buffs 5s early pull the window in", true, brdPlanOpen.Invoke(null, [5f, true]));
 Check("BRD Plan: party buffs 20s early do not", false, brdPlanOpen.Invoke(null, [20f, true]));
+var brdPlanHolds = Method(assembly.GetType($"{ns}BRD_Plan", true)!, "HoldsBurst");
+Check("BRD Plan: next window 115s out holds", true, brdPlanHolds.Invoke(null, [115f, false, true, false]));
+Check("BRD Plan: missed window bursts in its late grace", false, brdPlanHolds.Invoke(null, [115f, false, true, true]));
+Check("BRD Plan: no visible window with a plan holds", true, brdPlanHolds.Invoke(null, [null, false, true, false]));
+Check("BRD Plan: late grace outranks the kill-gated hold", false, brdPlanHolds.Invoke(null, [null, false, true, true]));
+Check("BRD Plan: no plan this pull never holds", false, brdPlanHolds.Invoke(null, [null, false, false, false]));
 Check("BRD Reborn holds nothing for a plan", true,
 	CalledMethods(brd.GetProperty("HoldBurst", BindingFlags.Instance | BindingFlags.NonPublic)!.GetMethod!).All(m => m != "get_Buffs"));
 

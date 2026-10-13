@@ -19,9 +19,14 @@ public sealed class BRD_Plan : BRD_Reborn
 	/// <summary>Another job's raid buff this close to a planned start pulls the window in to it.</summary>
 	internal const float WindowSlide = 8f;
 
+	/// <summary>A window that closed before Battle Voice could go (no target, DoTs missing) still bursts, for this long. Same as MCH Plan.</summary>
+	internal const float LateGrace = 30f;
+
 	private List<BMRPlannedAction> _windows = [];
 	private DateTime _polledAt = DateTime.MinValue;
 	private float _lastCombatTime;
+	private DateTime _windowEnd = DateTime.MinValue;
+	private bool _windowPotion;
 
 	/// <summary>
 	/// A Burst window was seen this pull, so the plan is active. BossMod cannot see past a kill-gated phase end: from the last P4
@@ -43,6 +48,7 @@ public sealed class BRD_Plan : BRD_Reborn
 				_polledAt = DateTime.MinValue;
 				_windows = [];
 				_planSeen = false;
+				_windowEnd = DateTime.MinValue;
 			}
 			_lastCombatTime = combatTime;
 			if (now - _polledAt >= TimeSpan.FromSeconds(PollInterval))
@@ -56,27 +62,39 @@ public sealed class BRD_Plan : BRD_Reborn
 				_planSeen = InCombat && (_planSeen || _windows.Count > 0);
 			}
 			var age = (float)(now - _polledAt).TotalSeconds;
-			return _windows.Select(a => new BRDPlanWindow(a.ActivationIn - age, a.WindowEndIn - age, a.OptionName == "WindowWithPotion"))
+			var window = _windows.Select(a => new BRDPlanWindow(a.ActivationIn - age, a.WindowEndIn - age, a.OptionName == "WindowWithPotion"))
 				.Where(w => w.EndIn > 0f)
 				.OrderBy(w => w.StartIn)
 				.Cast<BRDPlanWindow?>()
 				.FirstOrDefault();
+			if (window is { StartIn: <= 0f } open)
+			{
+				_windowEnd = now.AddSeconds(open.EndIn);
+				_windowPotion = open.Potion;
+			}
+			return window;
 		}
 	}
+
+	/// <summary>A window closed under LateGrace ago. If its burst went, Battle Voice is cooling and this changes nothing.</summary>
+	private bool InLateGrace => CurrentWindow is not { StartIn: <= 0f } && DateTime.Now < _windowEnd.AddSeconds(LateGrace);
 
 	private static bool PartyRaidBuffUp => Buffs.Any(b => b.JobAbbr != "BRD" && (b.Type == StatusType.Buff
 		? StatusHelper.PlayerHasStatus(false, b.Ids)
 		: CurrentTarget?.HasStatus(false, b.Ids) == true));
 
 	/// <summary>No plan this pull plays like BRD Reborn; with one, nothing ahead means wait for the next window.</summary>
-	private protected override bool HoldBurst => CurrentWindow is { } w ? !IsOpen(w.StartIn, PartyRaidBuffUp) : _planSeen;
+	private protected override bool HoldBurst => HoldsBurst(CurrentWindow?.StartIn, PartyRaidBuffUp, _planSeen, InLateGrace);
 
 	/// <summary>No visible window (kill-gated phase end) is unknown timing, so it never counts as far off.</summary>
 	private protected override float PlannedBurstIn => CurrentWindow?.StartIn ?? 0f;
 
-	private protected override bool PotionNow => CurrentWindow is { } w
-		? w.Potion && IsOpen(w.StartIn, PartyRaidBuffUp)
+	private protected override bool PotionNow => InLateGrace ? _windowPotion
+		: CurrentWindow is { } w ? w.Potion && IsOpen(w.StartIn, PartyRaidBuffUp)
 		: !_planSeen && base.PotionNow;
+
+	internal static bool HoldsBurst(float? startIn, bool partyRaidBuffUp, bool planSeen, bool inLateGrace)
+		=> !inLateGrace && (startIn is float s ? !IsOpen(s, partyRaidBuffUp) : planSeen);
 
 	internal static bool IsOpen(float startIn, bool partyRaidBuffUp)
 		=> startIn <= 0f || partyRaidBuffUp && startIn <= WindowSlide;
