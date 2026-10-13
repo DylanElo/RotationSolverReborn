@@ -951,8 +951,16 @@ public class MCH_SyncPlus : MCH_Reborn
 			}
 
 			var battery = Battery;
+			// Battery the return's tools bring in its first GCDs (top FRU CT return: Chain Saw, Excavator, Air Anchor). The
+			// battery-target hold stands down when they would cap the gauge, as in uptime; passing 0 held a sub-100 Queen
+			// until the first tool, ~3s late.
+			var toolsBy = uptimeIn + GCDTime(3);
+			var returnGain = MCHSyncPlusPolicy.ReturnBatteryGain(
+				AirAnchorPvE.EnoughLevel && AirAnchorPvE.Cooldown.WillHaveOneCharge(toolsBy),
+				ChainSawPvE.EnoughLevel && ChainSawPvE.Cooldown.WillHaveOneCharge(toolsBy),
+				HasExcavatorReady && !StatusHelper.PlayerWillStatusEnd(toolsBy, true, StatusID.ExcavatorReady));
 			if (MCHSyncPlusPolicy.ShouldPreSummonQueen(uptimeIn, battery, IsRobotActive)
-				&& !ShouldHoldQueen && !ShouldHardHoldQueen(0)
+				&& !ShouldHoldQueen && !ShouldHardHoldQueen(returnGain)
 				&& AutomatonQueenPvE.CanUse(out act, skipTTKCheck: true))
 			{
 				OnQueenDeployed(battery);
@@ -2028,6 +2036,10 @@ internal static class MCHSyncPlusPolicy
 
 	/// <summary>FRU P3 Oracle and the P4 pair: the phases whose Barrel has to run ahead for the extra CT Barrel.</summary>
 	internal static bool BarrelOnCooldownPhase(uint baseId) => baseId is 0x45A7 or 0x45A9 or 0x45AB;
+
+	/// <summary>Battery from the tools ready as uptime returns: Air Anchor 20, Chain Saw 20 plus the Excavator it grants, a held Excavator 20.</summary>
+	internal static int ReturnBatteryGain(bool airAnchor, bool chainSaw, bool excavatorReady)
+		=> (airAnchor ? 20 : 0) + (chainSaw ? 40 : 0) + (excavatorReady ? 20 : 0);
 
 	internal static bool BarrelBuffsUnclaimed(float buffsLeft, float? nextBurstIn)
 		=> buffsLeft > 0f && (nextBurstIn is not float next || next > buffsLeft);

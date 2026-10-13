@@ -1128,6 +1128,12 @@ Check("Barrel on cooldown: P4 Usurper", true, barrelPhase.Invoke(null, [0x45A9u]
 Check("Barrel on cooldown: P4 Oracle", true, barrelPhase.Invoke(null, [0x45ABu]));
 Check("Barrel on cooldown: not P2 Usurper", false, barrelPhase.Invoke(null, [0x459Fu]));
 Check("Barrel on cooldown: not P1 Fatebreaker", false, barrelPhase.Invoke(null, [0x459Bu]));
+var returnGain = Method(policy, "ReturnBatteryGain");
+Check("CT return: Air Anchor + Chain Saw (+Excavator) bring 60", 60, returnGain.Invoke(null, [true, true, false]));
+Check("CT return: nothing ready brings 0", 0, returnGain.Invoke(null, [false, false, false]));
+var batteryHold = Method(policy, "ShouldHoldQueenForBatteryTarget");
+Check("CT return: 50 Battery + 60 from tools releases the target-100 hold", false, batteryHold.Invoke(null, [50, 100, 60]));
+Check("CT return: 50 Battery + 20 still holds for 100", true, batteryHold.Invoke(null, [50, 100, 20]));
 var brdDoTPays = Method(assembly.GetType($"{ns}BRD_Reborn", true)!, "DoTPaysOff");
 Check("BRD: no DoT 5s before downtime", false, brdDoTPays.Invoke(null, [5f]));
 Check("BRD: DoT 17s before downtime (CT return length)", true, brdDoTPays.Invoke(null, [17f]));
