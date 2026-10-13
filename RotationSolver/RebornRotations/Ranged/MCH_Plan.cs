@@ -102,6 +102,8 @@ public sealed class MCH_Plan : MCH_SyncPlus
 			// Armed only once the window has opened, like PlannedDecision: CurrentWindow can be up to 150s ahead,
 			// and arming on a future window made any earlier raid buff read as its late grace.
 			if (window is { Potion: true, StartIn: <= 0f } open) _potionWindowEnd = DateTime.Now.AddSeconds(open.EndIn);
+			if (window is { } next && MCHPlanScheduler.PotsAhead(next.Potion, next.StartIn, WildfirePvE.Cooldown.WillHaveOneCharge(next.StartIn)))
+				return true;
 			return MCHPlanScheduler.PotionDue(window, PartyBurstActive, DateTime.Now < _potionWindowEnd.AddSeconds(LatePotionGrace)) is bool due
 				? due && WildfirePvE.Cooldown.HasOneCharge && ShouldUseWildfire
 				: null;
@@ -137,6 +139,15 @@ internal static class MCHPlanScheduler
 {
 	/// <summary>Live raid buffs this close to a planned start pull the window in to them.</summary>
 	internal const float WindowSlide = 8f;
+
+	/// <summary>
+	/// A potion window pots up to this far ahead (Wildfire must be back for it): the 30s tincture still covers the
+	/// burst and is back that much sooner. FRU: the crystals pot has to be back for the P4 burst when Oracle appears.
+	/// </summary>
+	internal const float PotionLead = 10f;
+
+	internal static bool PotsAhead(bool potion, float startIn, bool wildfireBackInTime)
+		=> potion && startIn > 0f && startIn <= PotionLead && wildfireBackInTime;
 
 	/// <summary>The window is where the burst is expected; live raid buffs are what confirm it.</summary>
 	internal static bool IsOpen(float startIn, float endIn, bool liveRaidBuffs)

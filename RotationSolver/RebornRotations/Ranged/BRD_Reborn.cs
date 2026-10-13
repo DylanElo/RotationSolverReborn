@@ -97,6 +97,9 @@ public class BRD_Reborn : BardRotation
 	private bool LongPlannedHold => HoldBurst && PlannedBurstIn >= 60f + BRD_Plan.WindowSlide;
 
 	/// <summary>FRU potion burst due. BRD Plan reads it from the plan's potion windows instead of PotionTimes.</summary>
+	/// <summary>BRD Plan: the potion goes ahead of the window, before Raging Strikes is due.</summary>
+	private protected virtual bool PotionBeforeBurst => false;
+
 	private protected virtual bool PotionNow => DataCenter.IsInFRU && PotionDue(CombatTime, PotionTimes);
 
 	#endregion
@@ -127,7 +130,7 @@ public class BRD_Reborn : BardRotation
 
 		// FRU only: top logs pot 1.5-4s before Raging Strikes in the listed bursts, never on the countdown.
 		if (IsBurst && PotionNow && RagingStrikesPvE.EnoughLevel
-			&& (RagingStrikesPvE.Cooldown.WillHaveOneChargeGCD(1) || HasRagingStrikes) && UseBurstMedicine(out act))
+			&& (RagingStrikesPvE.Cooldown.WillHaveOneChargeGCD(1) || HasRagingStrikes || PotionBeforeBurst) && UseBurstMedicine(out act))
 		{
 			return true;
 		}

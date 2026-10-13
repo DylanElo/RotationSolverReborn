@@ -1116,6 +1116,17 @@ Check("BRD Plan: window reached opens the burst", true, brdPlanOpen.Invoke(null,
 Check("BRD Plan: 5s early without party buffs holds", false, brdPlanOpen.Invoke(null, [5f, false]));
 Check("BRD Plan: party buffs 5s early pull the window in", true, brdPlanOpen.Invoke(null, [5f, true]));
 Check("BRD Plan: party buffs 20s early do not", false, brdPlanOpen.Invoke(null, [20f, true]));
+var brdPotsAhead = Method(assembly.GetType($"{ns}BRD_Plan", true)!, "PotsAhead");
+Check("BRD Plan: potion window 10s out pots now", true, brdPotsAhead.Invoke(null, [true, 10f]));
+Check("BRD Plan: potion window 12s out waits", false, brdPotsAhead.Invoke(null, [true, 12f]));
+Check("BRD Plan: open potion window still pots", true, brdPotsAhead.Invoke(null, [true, -3f]));
+Check("BRD Plan: plain window never pots", false, brdPotsAhead.Invoke(null, [false, 5f]));
+var mchPotsAhead = Method(assembly.GetType($"{ns}MCHPlanScheduler", true)!, "PotsAhead");
+Check("MCH Plan: potion window 9s out pots ahead", true, mchPotsAhead.Invoke(null, [true, 9f, true]));
+Check("MCH Plan: potion window 12s out waits", false, mchPotsAhead.Invoke(null, [true, 12f, true]));
+Check("MCH Plan: no early pot if Wildfire is not back for the window", false, mchPotsAhead.Invoke(null, [true, 9f, false]));
+Check("MCH Plan: open window keeps the Wildfire-paired potion", false, mchPotsAhead.Invoke(null, [true, 0f, true]));
+Check("MCH Plan: plain window never pots ahead", false, mchPotsAhead.Invoke(null, [false, 9f, true]));
 var brdPlanHolds = Method(assembly.GetType($"{ns}BRD_Plan", true)!, "HoldsBurst");
 Check("BRD Plan: next window 115s out holds", true, brdPlanHolds.Invoke(null, [115f, false, true, false]));
 Check("BRD Plan: missed window bursts in its late grace", false, brdPlanHolds.Invoke(null, [115f, false, true, true]));

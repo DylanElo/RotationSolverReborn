@@ -22,6 +22,12 @@ public sealed class BRD_Plan : BRD_Reborn
 	/// <summary>A window that closed before Battle Voice could go (no target, DoTs missing) still bursts, for this long. Same as MCH Plan.</summary>
 	internal const float LateGrace = 30f;
 
+	/// <summary>
+	/// A potion window pots up to this far ahead: the 30s tincture still covers the 20s burst and is back that much
+	/// sooner. FRU: a 6:13 crystals pot was only back at 10:43, after the P4 burst when Oracle appears (~10:32).
+	/// </summary>
+	internal const float PotionLead = 10f;
+
 	private List<BMRPlannedAction> _windows = [];
 	private DateTime _polledAt = DateTime.MinValue;
 	private float _lastCombatTime;
@@ -86,8 +92,12 @@ public sealed class BRD_Plan : BRD_Reborn
 	private protected override float PlannedBurstIn => CurrentWindow?.StartIn ?? 0f;
 
 	private protected override bool PotionNow => InLateGrace ? _windowPotion
-		: CurrentWindow is { } w ? w.Potion && IsOpen(w.StartIn, PartyRaidBuffUp)
+		: CurrentWindow is { } w ? PotsAhead(w.Potion, w.StartIn)
 		: !_planSeen && base.PotionNow;
+
+	private protected override bool PotionBeforeBurst => CurrentWindow is { Potion: true, StartIn: > 0f };
+
+	internal static bool PotsAhead(bool potion, float startIn) => potion && startIn <= PotionLead;
 
 	internal static bool HoldsBurst(float? startIn, bool partyRaidBuffUp, bool planSeen, bool inLateGrace)
 		=> !inLateGrace && (startIn is float s ? !IsOpen(s, partyRaidBuffUp) : planSeen);
