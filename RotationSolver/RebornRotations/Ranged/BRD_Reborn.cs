@@ -71,6 +71,12 @@ public class BRD_Reborn : BardRotation
 	/// <summary>BRD Plan: Battle Voice (and so Finale and Raging Strikes) waits for the planned window.</summary>
 	private protected virtual bool HoldBurst => false;
 
+	/// <summary>Seconds until the planned burst window; only meaningful while HoldBurst.</summary>
+	private protected virtual float PlannedBurstIn => 0f;
+
+	/// <summary>A planned hold long enough that Sidewinder (60s recast) and refilled Soul Voice are back for the window.</summary>
+	private bool LongPlannedHold => HoldBurst && PlannedBurstIn >= 60f;
+
 	/// <summary>FRU potion burst due. BRD Plan reads it from the plan's potion windows instead of PotionTimes.</summary>
 	private protected virtual bool PotionNow => DataCenter.IsInFRU && PotionDue(CombatTime, PotionTimes);
 
@@ -126,7 +132,7 @@ public class BRD_Reborn : BardRotation
 	}
 
 	// ponytail: fixed combat times drift with kill speed; ±20s plus the Raging Strikes gate absorbs normal variance.
-	/// <summary>With burst on, a ready Finale means the stacks wait for the buffs; with it off Finale never goes.</summary>
+	/// <summary>With burst on, a ready Finale means the stacks wait for the buffs (unless a planned hold keeps it ready); with it off Finale never goes.</summary>
 	internal static bool TwoStackPPBeforeEmpyreal(int repertoire, bool empyrealSoon, bool autoBurst, bool finaleCooling)
 		=> repertoire == 2 && empyrealSoon && (!autoBurst || finaleCooling);
 
@@ -455,7 +461,7 @@ public class BRD_Reborn : BardRotation
 				return true;
 			}
 
-			if (TwoStackPPBeforeEmpyreal(Repertoire, EmpyrealArrowPvE.Cooldown.WillHaveOneChargeGCD(), IsBurst, RadiantFinalePvE.Cooldown.IsCoolingDown))
+			if (TwoStackPPBeforeEmpyreal(Repertoire, EmpyrealArrowPvE.Cooldown.WillHaveOneChargeGCD(), IsBurst, RadiantFinalePvE.Cooldown.IsCoolingDown || HoldBurst))
 			{
 				return true;
 			}
@@ -470,7 +476,7 @@ public class BRD_Reborn : BardRotation
 
 		if (SidewinderPvE.EnoughLevel)
 		{
-			if (!IsBurst || ((BattleVoicePvE.Cooldown.IsCoolingDown && !BattleVoicePvE.Cooldown.WillHaveOneCharge(10))
+			if (!IsBurst || LongPlannedHold || ((BattleVoicePvE.Cooldown.IsCoolingDown && !BattleVoicePvE.Cooldown.WillHaveOneCharge(10))
 			&& (!RadiantFinalePvE.EnoughLevel || (RadiantFinalePvE.EnoughLevel && RadiantFinalePvE.Cooldown.IsCoolingDown && !RadiantFinalePvE.Cooldown.WillHaveOneCharge(10)))
 			&& RagingStrikesPvE.Cooldown.IsCoolingDown))
 			{
@@ -713,6 +719,12 @@ public class BRD_Reborn : BardRotation
 
 		// Auto Burst off: Raging Strikes / Battle Voice never go, so the alignment waits below would hold Apex forever.
 		if (!IsBurst && SoulVoice >= SoulVoiceConfig)
+		{
+			return true;
+		}
+
+		// Capped gauge in a long planned hold: the buffs it waits for are held, and the gauge refills before the window.
+		if (SoulVoice >= 100 && LongPlannedHold)
 		{
 			return true;
 		}

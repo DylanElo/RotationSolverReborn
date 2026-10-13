@@ -43,12 +43,14 @@ public sealed class MCH_Plan : MCH_SyncPlus
 		get
 		{
 			var now = DateTime.Now;
-			// A wipe (out of combat, or the combat timer restarting) ends the old plan's late-buff/potion grace:
-			// otherwise a quick re-pull could inherit last pull's potion window.
+			// A wipe (out of combat, or the combat timer restarting) ends the old pull's plan state: otherwise a quick
+			// re-pull could inherit last pull's potion window, cached windows, or the plan latch (no-plan fallback lost).
 			var encounterTime = EncounterTime;
 			if (!InCombat || encounterTime < _lastEncounterTime)
 			{
-				_windowEnd = _potionWindowEnd = DateTime.MinValue;
+				_windowEnd = _potionWindowEnd = _polledAt = DateTime.MinValue;
+				_windows = [];
+				_planSeen = false;
 			}
 			_lastEncounterTime = encounterTime;
 			if (now - _polledAt >= TimeSpan.FromSeconds(PollInterval))

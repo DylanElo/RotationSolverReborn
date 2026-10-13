@@ -21,6 +21,7 @@ public sealed class BRD_Plan : BRD_Reborn
 
 	private List<BMRPlannedAction> _windows = [];
 	private DateTime _polledAt = DateTime.MinValue;
+	private float _lastCombatTime;
 
 	/// <summary>
 	/// A Burst window was seen this pull, so the plan is active. BossMod cannot see past a kill-gated phase end: from the last P4
@@ -34,6 +35,16 @@ public sealed class BRD_Plan : BRD_Reborn
 		get
 		{
 			var now = DateTime.Now;
+			// A wipe (out of combat, or the combat timer restarting) drops last pull's windows and plan latch,
+			// even if no out-of-combat poll ran in between.
+			var combatTime = DataCenter.CombatTimeRaw;
+			if (!InCombat || combatTime < _lastCombatTime)
+			{
+				_polledAt = DateTime.MinValue;
+				_windows = [];
+				_planSeen = false;
+			}
+			_lastCombatTime = combatTime;
 			if (now - _polledAt >= TimeSpan.FromSeconds(PollInterval))
 			{
 				_polledAt = now;
@@ -59,6 +70,9 @@ public sealed class BRD_Plan : BRD_Reborn
 
 	/// <summary>No plan this pull plays like BRD Reborn; with one, nothing ahead means wait for the next window.</summary>
 	private protected override bool HoldBurst => CurrentWindow is { } w ? !IsOpen(w.StartIn, PartyRaidBuffUp) : _planSeen;
+
+	/// <summary>Nothing ahead with the plan seen means the next window is past BossMod's horizon: far off.</summary>
+	private protected override float PlannedBurstIn => CurrentWindow is { } w ? w.StartIn : _planSeen ? float.MaxValue : 0f;
 
 	private protected override bool PotionNow => CurrentWindow is { } w
 		? w.Potion && IsOpen(w.StartIn, PartyRaidBuffUp)
