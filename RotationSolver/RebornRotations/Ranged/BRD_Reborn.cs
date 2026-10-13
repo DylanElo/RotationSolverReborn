@@ -193,6 +193,23 @@ public class BRD_Reborn : BardRotation
 		return base.DefenseAreaAbility(nextGCD, out act);
 	}
 
+	private uint _lastTargetBaseId;
+
+	/// <summary>Finale's least lead on the CT return to be back (110s) for P5's burst, which comes ~102-108s after the return.</summary>
+	internal const float StandaloneFinaleLead = 8f;
+
+	/// <summary>Finale's 20s buff should still cover most of the return: no earlier than this before it.</summary>
+	internal const float StandaloneFinaleLatest = 10f;
+
+	/// <summary>
+	/// FRU CT (P4 pair gone): a Finale without Battle Voice, then Encore on the return (top Bards: Xw 12:20, Aqualyy 12:22, ~13s
+	/// before it, back for P5 at 14:13/14:16). Only 8-10s before the return (back for P5, buff still up on return), at least 2 Codas,
+	/// and Battle Voice still cooling, so it is never the normal burst. CodaGrab rebuilds the Codas in the P4->P5 gap.
+	/// </summary>
+	// ponytail: the 8s lead assumes P5's burst ~102s+ after the CT return (Mana group 102s, Xw 108s); a faster P4 kill shrinks it.
+	internal static bool ShouldUseStandaloneFinale(bool fruCtDowntime, float downtimeLeft, int codas, bool battleVoiceCooling)
+		=> fruCtDowntime && downtimeLeft is >= StandaloneFinaleLead and <= StandaloneFinaleLatest && codas >= 2 && battleVoiceCooling;
+
 	private SongTrack GetNextSongTrack(SongTrack currentSong)
 	{
 		if (currentSong == FirstSong)
@@ -228,6 +245,19 @@ public class BRD_Reborn : BardRotation
 
 	protected override bool GeneralAbility(IAction nextGCD, out IAction? act)
 	{
+		if (CurrentTarget is { } target)
+		{
+			_lastTargetBaseId = target.BaseId;
+		}
+
+		if (InCombat && IsBurst && ShouldUseStandaloneFinale(
+				DataCenter.IsInFRU && _lastTargetBaseId is 0x45A9 or 0x45AB && DataCenter.AllHostileTargets.Count == 0,
+				BMRDowntimeEndIn, Coda.Count(s => s != Song.None), BattleVoicePvE.Cooldown.IsCoolingDown)
+			&& RadiantFinalePvE.CanUse(out act))
+		{
+			return true;
+		}
+
 		if (InCombat && SongAbility(out act))
 		{
 			return true;
@@ -603,7 +633,8 @@ public class BRD_Reborn : BardRotation
 
 		if (RadiantEncorePvE.CanUse(out act, skipComboCheck: true))
 		{
-			if (InBurstStatus || StatusHelper.PlayerWillStatusEndGCD(2, 0, true, StatusID.RadiantEncoreReady))
+			// A standalone Finale (CT) has no Battle Voice coming: Encore on the return's first GCDs, before P4 dies.
+			if (InBurstStatus || (HasRadiantFinale && !HasBattleVoice) || StatusHelper.PlayerWillStatusEndGCD(2, 0, true, StatusID.RadiantEncoreReady))
 			{
 				return true;
 			}

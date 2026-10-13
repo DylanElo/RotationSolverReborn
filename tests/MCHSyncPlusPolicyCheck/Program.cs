@@ -1134,6 +1134,14 @@ Check("CT return: nothing ready brings 0", 0, returnGain.Invoke(null, [false, fa
 var batteryHold = Method(policy, "ShouldHoldQueenForBatteryTarget");
 Check("CT return: 50 Battery + 60 from tools releases the target-100 hold", false, batteryHold.Invoke(null, [50, 100, 60]));
 Check("CT return: 50 Battery + 20 still holds for 100", true, batteryHold.Invoke(null, [50, 100, 20]));
+var soloFinale = Method(assembly.GetType($"{ns}BRD_Reborn", true)!, "ShouldUseStandaloneFinale");
+Check("BRD CT Finale: 9s of CT left, 2 Codas, BV cooling", true, soloFinale.Invoke(null, [true, 9f, 2, true]));
+Check("BRD CT Finale: 25s left would expire the buff in downtime", false, soloFinale.Invoke(null, [true, 25f, 3, true]));
+Check("BRD CT Finale: 5s left is too late for P5", false, soloFinale.Invoke(null, [true, 5f, 2, true]));
+Check("BRD CT Finale: 1 Coda is too weak", false, soloFinale.Invoke(null, [true, 9f, 1, true]));
+Check("BRD CT Finale: BV ready means the normal burst", false, soloFinale.Invoke(null, [true, 9f, 3, false]));
+Check("BRD CT Finale: unknown downtime end", false, soloFinale.Invoke(null, [true, float.MaxValue, 3, true]));
+Check("BRD CT Finale: not outside FRU CT", false, soloFinale.Invoke(null, [false, 9f, 3, true]));
 var brdDoTPays = Method(assembly.GetType($"{ns}BRD_Reborn", true)!, "DoTPaysOff");
 Check("BRD: no DoT 5s before downtime", false, brdDoTPays.Invoke(null, [5f]));
 Check("BRD: DoT 17s before downtime (CT return length)", true, brdDoTPays.Invoke(null, [17f]));
