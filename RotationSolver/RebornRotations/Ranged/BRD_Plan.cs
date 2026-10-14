@@ -16,7 +16,7 @@ public sealed class BRD_Plan : BRD_Reborn
 	private const float PlanLookAhead = 150f;
 	private const float PollInterval = 1f;
 
-	/// <summary>Another job's raid buff this close to a planned start pulls the window in to it.</summary>
+	/// <summary>The party's burst (two other jobs' buffs, see PartyBurstStarted) this close to a planned start pulls the window in to it.</summary>
 	internal const float WindowSlide = 8f;
 
 	/// <summary>A window that closed before Battle Voice could go (no target, DoTs missing) still bursts, for this long. Same as MCH Plan.</summary>
@@ -86,7 +86,7 @@ public sealed class BRD_Plan : BRD_Reborn
 	private bool InLateGrace => CurrentWindow is not { StartIn: <= 0f } && DateTime.Now < _windowEnd.AddSeconds(LateGrace);
 
 	/// <summary>No plan this pull plays like BRD Reborn; with one, nothing ahead means wait for the next window.</summary>
-	private protected override bool HoldBurst => HoldsBurst(CurrentWindow?.StartIn, PartyRaidBuffUp, _planSeen, InLateGrace);
+	private protected override bool HoldBurst => HoldsBurst(CurrentWindow?.StartIn, PartyBurstStarted, _planSeen, InLateGrace);
 
 	/// <summary>
 	/// No visible window once the plan was seen (kill-gated phase end) counts as far off, like MCH Plan's 999s stand-in:

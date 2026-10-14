@@ -1133,6 +1133,11 @@ Check("BRD Plan: missed window bursts in its late grace", false, brdPlanHolds.In
 Check("BRD Plan: no visible window with a plan holds", true, brdPlanHolds.Invoke(null, [null, false, true, false]));
 Check("BRD Plan: late grace outranks the kill-gated hold", false, brdPlanHolds.Invoke(null, [null, false, true, true]));
 Check("BRD Plan: no plan this pull never holds", false, brdPlanHolds.Invoke(null, [null, false, false, false]));
+var slides = Method(brd, "SlidesWindow");
+Check("BRD Plan: one early buff of four does not slide the window", false, slides.Invoke(null, [1, 4]));
+Check("BRD Plan: two jobs bursting slide the window", true, slides.Invoke(null, [2, 4]));
+Check("BRD Plan: the only other buff job slides the window", true, slides.Invoke(null, [1, 1]));
+Check("BRD Plan: no buffs never slide", false, slides.Invoke(null, [0, 0]));
 var barrelPhase = Method(policy, "BarrelOnCooldownPhase");
 Check("Barrel on cooldown: P3 Oracle", true, barrelPhase.Invoke(null, [0x45A7u]));
 Check("Barrel on cooldown: P4 Usurper", true, barrelPhase.Invoke(null, [0x45A9u]));

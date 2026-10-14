@@ -80,9 +80,28 @@ public class BRD_Reborn : BardRotation
 	private static bool UptimeForDoT => DoTPaysOff(BMRDowntimeIn);
 
 	/// <summary>Another job's raid buff is up (or its debuff is on the target): the party is bursting now.</summary>
-	private protected static bool PartyRaidBuffUp => Buffs.Any(b => b.JobAbbr != "BRD" && (b.Type == StatusType.Buff
+	private protected static bool PartyRaidBuffUp => Buffs.Any(b => b.JobAbbr != "BRD" && IsUp(b));
+
+	private static bool IsUp(StatusInfo b) => b.Type == StatusType.Buff
 		? StatusHelper.PlayerHasStatus(false, b.Ids)
-		: CurrentTarget?.HasStatus(false, b.Ids) == true));
+		: CurrentTarget?.HasStatus(false, b.Ids) == true;
+
+	/// <summary>
+	/// The party's burst has started, not one early buff: BRD Plan slides its window in only on this. A lone Divination or Mug
+	/// up to 8s early would otherwise drag Battle Voice (itself a raid buff) ahead of everyone else's.
+	/// </summary>
+	private protected static bool PartyBurstStarted
+	{
+		get
+		{
+			var others = Buffs.Where(b => b.JobAbbr != "BRD").ToList();
+			return SlidesWindow(others.Where(IsUp).Select(b => b.JobAbbr).Distinct().Count(),
+				others.Select(b => b.JobAbbr).Distinct().Count());
+		}
+	}
+
+	/// <summary>Two jobs bursting, or every other buff job when the party has fewer.</summary>
+	internal static bool SlidesWindow(int activeJobs, int otherBuffJobs) => activeJobs > 0 && activeJobs >= Math.Min(2, otherBuffJobs);
 
 	/// <summary>BRD Plan: Battle Voice (and so Finale and Raging Strikes) waits for the planned window.</summary>
 	private protected virtual bool HoldBurst => false;
@@ -96,10 +115,10 @@ public class BRD_Reborn : BardRotation
 	/// </summary>
 	private bool LongPlannedHold => HoldBurst && PlannedBurstIn >= 60f + BRD_Plan.WindowSlide;
 
-	/// <summary>FRU potion burst due. BRD Plan reads it from the plan's potion windows instead of PotionTimes.</summary>
 	/// <summary>BRD Plan: the potion goes ahead of the window, before Raging Strikes is due.</summary>
 	private protected virtual bool PotionBeforeBurst => false;
 
+	/// <summary>FRU potion burst due. BRD Plan reads it from the plan's potion windows instead of PotionTimes.</summary>
 	private protected virtual bool PotionNow => DataCenter.IsInFRU && PotionDue(CombatTime, PotionTimes);
 
 	#endregion
@@ -202,6 +221,7 @@ public class BRD_Reborn : BardRotation
 	}
 
 	private uint _lastTargetBaseId;
+	private float _lastTargetHp;
 
 	/// <summary>Per enemy (the FRU P4 pair each carry their own DoTs): last seen Stormbite time left and the multiplier it snapshotted.</summary>
 	private readonly Dictionary<ulong, (float Remain, float Snapshot)> _dots = [];
@@ -343,10 +363,12 @@ public class BRD_Reborn : BardRotation
 		if (CurrentTarget is { } target)
 		{
 			_lastTargetBaseId = target.BaseId;
+			_lastTargetHp = target.GetHealthRatio();
 		}
 
+		// CT, not the P4 kill: both leave no hostiles, but in CT the pair vanished alive.
 		if (InCombat && IsBurst && ShouldUseStandaloneFinale(
-				DataCenter.IsInFRU && _lastTargetBaseId is 0x45A9 or 0x45AB && DataCenter.AllHostileTargets.Count == 0,
+				DataCenter.IsInFRU && _lastTargetBaseId is 0x45A9 or 0x45AB && _lastTargetHp > 0.05f && DataCenter.AllHostileTargets.Count == 0,
 				BMRDowntimeEndIn, Coda.Count(s => s != Song.None), BattleVoicePvE.Cooldown.IsCoolingDown)
 			&& RadiantFinalePvE.CanUse(out act))
 		{
