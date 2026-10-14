@@ -88,8 +88,12 @@ public sealed class BRD_Plan : BRD_Reborn
 	/// <summary>No plan this pull plays like BRD Reborn; with one, nothing ahead means wait for the next window.</summary>
 	private protected override bool HoldBurst => HoldsBurst(CurrentWindow?.StartIn, PartyRaidBuffUp, _planSeen, InLateGrace);
 
-	/// <summary>No visible window (kill-gated phase end) is unknown timing, so it never counts as far off.</summary>
-	private protected override float PlannedBurstIn => CurrentWindow?.StartIn ?? 0f;
+	/// <summary>
+	/// No visible window once the plan was seen (kill-gated phase end) counts as far off, like MCH Plan's 999s stand-in:
+	/// FRU's CT return to P5 held Sidewinder and capped Soul Voice ~100s. Only this gap has Battle Voice ready while hidden.
+	/// </summary>
+	// ponytail: assumes a hidden window is >=68s out; a fight with a short kill-gated gap needs a real lower bound here.
+	private protected override float PlannedBurstIn => CurrentWindow?.StartIn ?? (_planSeen ? 999f : 0f);
 
 	private protected override bool PotionNow => InLateGrace ? _windowPotion
 		: CurrentWindow is { } w ? PotsAhead(w.Potion, w.StartIn)
