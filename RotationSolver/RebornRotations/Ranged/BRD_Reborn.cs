@@ -103,6 +103,16 @@ public class BRD_Reborn : BardRotation
 	/// <summary>Two jobs bursting, or every other buff job when the party has fewer.</summary>
 	internal static bool SlidesWindow(int activeJobs, int otherBuffJobs) => activeJobs > 0 && activeJobs >= Math.Min(2, otherBuffJobs);
 
+	/// <summary>BRD Plan: a planned burst window is open (or in its late grace).</summary>
+	private protected virtual bool PlanWindowOpen => false;
+
+	/// <summary>
+	/// Battle Voice skips its 10s TTK check while the party bursts or a plan window is open: a fresh target (crystals, P4, P5)
+	/// reads no TTK for 2.5s after its first HP loss, which averages to 0 and held Battle Voice behind the party's buffs.
+	/// The check exists for dying trash, which a live party burst rules out.
+	/// </summary>
+	private bool BurstSkipsTTK => PartyRaidBuffUp || PlanWindowOpen;
+
 	/// <summary>BRD Plan: Battle Voice (and so Finale and Raging Strikes) waits for the planned window.</summary>
 	private protected virtual bool HoldBurst => false;
 
@@ -574,12 +584,13 @@ public class BRD_Reborn : BardRotation
 			// waiting for Stormbite+Caustic put it 8s behind Arcane Circle and Battle Litany.
 			if (!HoldBurst && ((!RadiantFinalePvE.EnoughLevel && !RagingStrikesPvE.Cooldown.IsCoolingDown)
 					|| (RadiantFinalePvE.EnoughLevel && !RadiantFinalePvE.Cooldown.IsCoolingDown && RagingStrikesPvE.EnoughLevel && (!RagingStrikesPvE.Cooldown.IsCoolingDown || RagingStrikesPvE.Cooldown.WillHaveOneCharge(BuffAlignment))))
-					&& ((CurrentTarget?.HasStatus(true, StatusID.Windbite, StatusID.Stormbite) == true && CurrentTarget?.HasStatus(true, StatusID.VenomousBite, StatusID.CausticBite) == true) || DOTBarrage || PartyRaidBuffUp) && BattleVoicePvE.CanUse(out act))
+					&& ((CurrentTarget?.HasStatus(true, StatusID.Windbite, StatusID.Stormbite) == true && CurrentTarget?.HasStatus(true, StatusID.VenomousBite, StatusID.CausticBite) == true) || DOTBarrage || PartyRaidBuffUp) && BattleVoicePvE.CanUse(out act, skipTTKCheck: BurstSkipsTTK))
 			{
 				return true;
 			}
 
-			if (StatusHelper.PlayerHasStatus(true, StatusID.BattleVoice) && RadiantFinalePvE.CanUse(out act))
+			// Our Battle Voice is out, so the burst is committed: a TTK reject here would leave it running alone.
+			if (StatusHelper.PlayerHasStatus(true, StatusID.BattleVoice) && RadiantFinalePvE.CanUse(out act, skipTTKCheck: true))
 			{
 				return true;
 			}
@@ -587,7 +598,7 @@ public class BRD_Reborn : BardRotation
 			if (((RadiantFinalePvE.EnoughLevel && HasRadiantFinale && HasBattleVoice)
 				|| (!RadiantFinalePvE.EnoughLevel && BattleVoicePvE.EnoughLevel && HasBattleVoice)
 				|| (!RadiantFinalePvE.EnoughLevel && !BattleVoicePvE.EnoughLevel))
-				&& RagingStrikesPvE.CanUse(out act))
+				&& RagingStrikesPvE.CanUse(out act, skipTTKCheck: HasBattleVoice || BurstSkipsTTK))
 			{
 				return true;
 			}
