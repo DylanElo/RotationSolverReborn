@@ -284,7 +284,18 @@ public partial class CustomRotation
 	/// Gets the static list of status effects (buffs and debuffs) that are relevant to the current rotation configuration.
 	/// <para>This list is populated by <see cref="StatusList"/> based on the party composition or the player's current job, and is used to track which status effects should be monitored for activation on the player (buffs) or hostile target (debuffs).</para>
 	/// </summary>
-	public static List<StatusInfo> Buffs { get; } = [];
+	/// <para>Reading it rebuilds it for the current party first: BRD read it without anything calling StatusList, so its party-buff
+	/// checks ran on whatever party last built it (4 of 6 FRU crystal bursts waited for our DoTs despite party buffs being up).</para>
+	public static List<StatusInfo> Buffs
+	{
+		get
+		{
+			StatusList();
+			return _buffs;
+		}
+	}
+
+	private static readonly List<StatusInfo> _buffs = [];
 	private static ulong _partyBuffJobMask = ulong.MaxValue;
 	/// <summary>
 	/// Increments whenever the party jobs used to build <see cref="Buffs"/> change.
@@ -315,7 +326,7 @@ public partial class CustomRotation
 
 		_partyBuffJobMask = jobMask;
 		PartyBuffsVersion++;
-		Buffs.Clear();
+		_buffs.Clear();
 		var processedJobs = new HashSet<string>();
 
 		foreach (var member in PartyMembers)
@@ -352,7 +363,7 @@ public partial class CustomRotation
 
 		if (JobBuffs.TryGetValue(abbr, out var buffs))
 		{
-			Buffs.AddRange(buffs);
+			_buffs.AddRange(buffs);
 		}
 	}
 
