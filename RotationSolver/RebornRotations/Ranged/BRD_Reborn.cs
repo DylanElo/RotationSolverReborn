@@ -164,6 +164,15 @@ public class BRD_Reborn : BardRotation
 			return true;
 		}
 
+		// Raging Strikes nearly over: Barrage goes now so its Refulgent and Resonant Arrow still land in it. The DoT-proc and
+		// Empyreal waits below cost ~100 potency; they starved FRU P4's burst (fresh bosses, DoTs applied inside it) of
+		// Barrage for all 20s, ~500 lost. Hawk's Eye still blocks: GeneralGCD spends that proc first under Raging Strikes.
+		if (HasRagingStrikes && StatusHelper.PlayerWillStatusEnd(BarrageLastCall, true, StatusID.RagingStrikes)
+			&& !HasHawksEye && Repertoire != 3 && BarragePvE.CanUse(out act))
+		{
+			return true;
+		}
+
 		if (nextGCD.IsTheSameTo(true, StraightShotPvE, VenomousBitePvE, WindbitePvE, IronJawsPvE))
 		{
 			return base.EmergencyAbility(nextGCD, out act);
@@ -252,6 +261,9 @@ public class BRD_Reborn : BardRotation
 		["Battle Litany"] = 0.06f, ["Brotherhood"] = 0.05f, ["Mug"] = 0.05f, ["Dokumori"] = 0.05f, ["Starry Muse"] = 0.05f,
 		["Arcane Circle"] = 0.03f, ["Embolden"] = 0.05f, ["Chain Stratagem"] = 0.06f, ["Searing Light"] = 0.05f,
 	};
+
+	/// <summary>Raging Strikes time left that still fits Barrage's Refulgent and Resonant Arrow (3 GCDs).</summary>
+	private const float BarrageLastCall = 7.5f;
 
 	private const float RagingStrikesWeight = 0.15f;
 	private const float MedicatedWeight = 0.06f;
