@@ -82,7 +82,14 @@ internal static class BMRPlan_IPCSubscriber
 		_actionsChangedCallback = null;
 	}
 
-	private static void OnActionsChanged() => _actionsChangedCallback?.Invoke();
+	/// <summary>Bumped when BossMod swaps the active plan or module; BRD/MCH Plan drop their plan latch on a change.</summary>
+	internal static int PlanVersion { get; private set; }
+
+	private static void OnActionsChanged()
+	{
+		PlanVersion++;
+		_actionsChangedCallback?.Invoke();
+	}
 
 	/// <summary>
 	/// Polls BMR for the upcoming planned actions within the given lookahead window.

@@ -31,6 +31,7 @@ public sealed class BRD_Plan : BRD_Reborn
 	private List<BMRPlannedAction> _windows = [];
 	private DateTime _polledAt = DateTime.MinValue;
 	private float _lastCombatTime;
+	private int _planVersion;
 	private DateTime _windowEnd = DateTime.MinValue;
 	private bool _windowPotion;
 
@@ -47,10 +48,13 @@ public sealed class BRD_Plan : BRD_Reborn
 		{
 			var now = DateTime.Now;
 			// A wipe (out of combat, or the combat timer restarting) drops last pull's windows and plan latch,
-			// even if no out-of-combat poll ran in between.
+			// even if no out-of-combat poll ran in between. So does BossMod unloading or swapping the plan mid-pull:
+			// the latch only bridges a hidden window of the same plan.
 			var combatTime = DataCenter.CombatTimeRaw;
-			if (!InCombat || combatTime < _lastCombatTime)
+			var planVersion = BMRPlan_IPCSubscriber.PlanVersion;
+			if (!InCombat || combatTime < _lastCombatTime || !BMRPlan_IPCSubscriber.IsEnabled || planVersion != _planVersion)
 			{
+				_planVersion = planVersion;
 				_polledAt = DateTime.MinValue;
 				_windows = [];
 				_planSeen = false;

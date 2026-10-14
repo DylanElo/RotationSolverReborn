@@ -26,6 +26,7 @@ public sealed class MCH_Plan : MCH_SyncPlus
 	private DateTime _windowEnd = DateTime.MinValue;
 	private DateTime _polledAt = DateTime.MinValue;
 	private float _lastEncounterTime;
+	private int _planVersion;
 
 	/// <summary>
 	/// A Burst window was seen this pull, so the plan is active. BossMod cannot see past a kill-gated phase end: from the last P4
@@ -45,9 +46,12 @@ public sealed class MCH_Plan : MCH_SyncPlus
 			var now = DateTime.Now;
 			// A wipe (out of combat, or the combat timer restarting) ends the old pull's plan state: otherwise a quick
 			// re-pull could inherit last pull's potion window, cached windows, or the plan latch (no-plan fallback lost).
+			// BossMod unloading or swapping the plan mid-pull drops the latch too: it only bridges a hidden window of the same plan.
 			var encounterTime = EncounterTime;
-			if (!InCombat || encounterTime < _lastEncounterTime)
+			var planVersion = BMRPlan_IPCSubscriber.PlanVersion;
+			if (!InCombat || encounterTime < _lastEncounterTime || !BMRPlan_IPCSubscriber.IsEnabled || planVersion != _planVersion)
 			{
+				_planVersion = planVersion;
 				_windowEnd = _potionWindowEnd = _polledAt = DateTime.MinValue;
 				_windows = [];
 				_planSeen = false;
@@ -102,7 +106,8 @@ public sealed class MCH_Plan : MCH_SyncPlus
 			// Armed only once the window has opened, like PlannedDecision: CurrentWindow can be up to 150s ahead,
 			// and arming on a future window made any earlier raid buff read as its late grace.
 			if (window is { Potion: true, StartIn: <= 0f } open) _potionWindowEnd = DateTime.Now.AddSeconds(open.EndIn);
-			if (window is { } next && MCHPlanScheduler.PotsAhead(next.Potion, next.StartIn, WildfirePvE.Cooldown.WillHaveOneCharge(next.StartIn)))
+			// ReserveBurst covers Auto Burst off and the dungeon reserve; a banked phase end pots in the next phase.
+			if (window is { } next && !ReserveBurst && !ObjectiveBanked && MCHPlanScheduler.PotsAhead(next.Potion, next.StartIn, WildfirePvE.Cooldown.WillHaveOneCharge(next.StartIn)))
 				return true;
 			return MCHPlanScheduler.PotionDue(window, PartyBurstActive, DateTime.Now < _potionWindowEnd.AddSeconds(LatePotionGrace)) is bool due
 				? due && WildfirePvE.Cooldown.HasOneCharge && ShouldUseWildfire

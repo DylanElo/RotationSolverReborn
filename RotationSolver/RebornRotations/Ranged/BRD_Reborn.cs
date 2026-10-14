@@ -370,7 +370,8 @@ public class BRD_Reborn : BardRotation
 		if (InCombat && IsBurst && ShouldUseStandaloneFinale(
 				DataCenter.IsInFRU && _lastTargetBaseId is 0x45A9 or 0x45AB && _lastTargetHp > 0.05f && DataCenter.AllHostileTargets.Count == 0,
 				BMRDowntimeEndIn, Coda.Count(s => s != Song.None), BattleVoicePvE.Cooldown.IsCoolingDown)
-			&& RadiantFinalePvE.CanUse(out act))
+			// No hostiles reads as 0s TTK, under Finale's 10s threshold: without the skip this never fired.
+			&& RadiantFinalePvE.CanUse(out act, skipTTKCheck: true))
 		{
 			return true;
 		}
