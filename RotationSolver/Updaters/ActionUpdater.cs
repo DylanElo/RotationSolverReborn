@@ -103,7 +103,9 @@ internal static class ActionUpdater
 		// Keep detailed phase-transition evidence, but do not let idle frames prune the pull.
 		ActionTracer.Enabled = Service.Config.EnableActionTracer && DataCenter.InCombat;
 		ActionTracer.MirrorToPluginLog = Service.Config.TraceMirrorToPluginLog;
-		ActionTracer.Verbose = Service.Config.TraceVerbose;
+		// Downtime (in combat, nothing targetable) is always verbose: FRU's CT return hid why every action failed there,
+		// and downtime frames are few enough that the 10x volume doesn't roll the pull out of the kept files.
+		ActionTracer.Verbose = Service.Config.TraceVerbose || (DataCenter.InCombat && DataCenter.AllHostileTargets.Count == 0);
 
 		var localPlayer = Player.Object;
 		var customRotation = DataCenter.CurrentRotation;

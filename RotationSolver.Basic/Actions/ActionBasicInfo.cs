@@ -635,6 +635,14 @@ public readonly struct ActionBasicInfo
 		return false;
 	}
 
+	/// <summary>Which part of BasicCheck failed, for the verbose action tracer only (not used for decisions).</summary>
+	internal readonly unsafe string DescribeBasicCheck(bool skipStatusProvideCheck, bool skipStatusNeed, bool skipComboCheck, bool skipCastingCheck)
+		=> $"lvl={EnoughLevel} on={IsActionEnabled()} off={IsActionDisabled()} slot={IsOnSlot} mp={HasEnoughMP()} "
+			+ $"game={ActionManager.Instance()->GetActionStatus(IsAbility && !IsRealGCD ? ActionType.EventAction : ActionType.Action, AdjustedID)} "
+			+ $"need={IsStatusNeeded(skipStatusNeed)} provided={IsStatusProvided(skipStatusProvideCheck)} "
+			+ $"combo={!_action.Info.BreaksCombo || IsComboValid(skipComboCheck)} job={IsActionJobValid()} cast={NeedsCasting(skipCastingCheck)} "
+			+ $"gcdProvided={IsGeneralGCD && IsStatusProvidedDuringGCD()} check={IsActionCheckValid()} rot={IsRotationCheckValid()}";
+
 	private bool IsActionEnabled()
 	{
 		return _action.Config?.IsEnabled ?? false;

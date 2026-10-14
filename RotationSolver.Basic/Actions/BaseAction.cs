@@ -229,12 +229,16 @@ public class BaseAction : IBaseAction
 
 		if (!Info.BasicCheck(skipStatusProvideCheck, skipStatusNeed, skipComboCheck, skipCastingCheck, checkActionManagerDirectly, targetOverride))
 		{
-			return ActionTracer.Reject(this, "BasicCheck");
+			return ActionTracer.Reject(this, ActionTracer.Enabled && ActionTracer.Verbose
+				? "BasicCheck " + Info.DescribeBasicCheck(skipStatusProvideCheck, skipStatusNeed, skipComboCheck, skipCastingCheck)
+				: "BasicCheck");
 		}
 
 		if (!Cooldown.CooldownCheck(usedUp, gcdCountForAbility))
 		{
-			return ActionTracer.Reject(this, "Cooldown");
+			return ActionTracer.Reject(this, ActionTracer.Enabled && ActionTracer.Verbose
+				? $"Cooldown recast={Cooldown.RecastTimeRemain:F2} gcd={DataCenter.DefaultGCDRemain:F2}"
+				: "Cooldown");
 		}
 
 		if (Setting.SpecialType == SpecialActionType.MeleeRangedAttack && IActionHelper.IsLastAction(IActionHelper.MovingActions))
