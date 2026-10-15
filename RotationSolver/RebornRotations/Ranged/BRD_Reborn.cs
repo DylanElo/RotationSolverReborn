@@ -493,7 +493,7 @@ public sealed class BRD_Reborn : BardRotation
 			{
 				if ((DOTBoss && CausticBitePvE.Target.Target.IsBossFromIcon()) || !DOTBoss)
 				{
-					if (CausticBitePvE.Target.Target.HasStatus(true, StatusID.VenomousBite) == false)
+					if (CausticBitePvE.Target.Target.HasStatus(true, StatusID.CausticBite) == false)
 					{
 						return true;
 					}
@@ -524,7 +524,7 @@ public sealed class BRD_Reborn : BardRotation
 			{
 				if ((DOTBoss && VenomousBitePvE.Target.Target.IsBossFromIcon()) || !DOTBoss)
 				{
-					if (IronJawsPvE.EnoughLevel && VenomousBitePvE.Target.Target.HasStatus(true, StatusID.CausticBite) == false)
+					if (IronJawsPvE.EnoughLevel && VenomousBitePvE.Target.Target.HasStatus(true, StatusID.VenomousBite) == false)
 					{
 						return true;
 					}
@@ -583,7 +583,7 @@ public sealed class BRD_Reborn : BardRotation
 			return false;
 		}
 
-		if (Song == Song.WanderersMinuet && SoulVoice >= 80 && !HasRagingStrikes)
+		if (Song == Song.WanderersMinuet && SoulVoice >= 80 && SoulVoice < 100 && !HasRagingStrikes)
 		{
 			return false;
 		}
@@ -603,7 +603,8 @@ public sealed class BRD_Reborn : BardRotation
 			return true;
 		}
 
-		if (Song == Song.MagesBallad && SoulVoice >= 80 && SongEndAfter(22) && SongEndAfter(18))
+		// Balance: fire around the middle of Mage's Ballad (~21-19s left) so Blast Arrow and the regen land before the next burst.
+		if (Song == Song.MagesBallad && SoulVoice >= 80 && SongEndAfter(22))
 		{
 			return true;
 		}

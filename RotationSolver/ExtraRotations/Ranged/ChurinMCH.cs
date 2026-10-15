@@ -231,6 +231,10 @@ public sealed class ChurinMCH : MachinistRotation
 		if ((WildfirePvE.Cooldown.HasOneCharge ||
 			 WildfirePvE.Cooldown.WillHaveOneChargeGCD(1)) && ExcavatorPvE.CanUse(out act)) return true;
 
+		// Never let a battery-management hold expire Excavator Ready (600 potency + 20 battery lost).
+		if (HasExcavatorReady && StatusHelper.PlayerWillStatusEnd(GCDTime(2), true, StatusID.ExcavatorReady)
+			&& ExcavatorPvE.CanUse(out act)) return true;
+
 		byte nextTargetBattery = 0;
 		if (_queenStep < _queenStepPairs.Length)
 		{
@@ -320,10 +324,10 @@ public sealed class ChurinMCH : MachinistRotation
         (60, 100, 5),  // 100
         (100, 50, 6),  // 50
         (50, 70, 7),   // 70
-        (80, 100, 8),  // 100
+        (70, 100, 8),  // 100
         (100, 50, 9),  // 50
         (50, 80, 10),  // 80
-        (70, 100, 11), // 100
+        (80, 100, 11), // 100
         (100, 50, 12), // 50
         (50, 60, 13)   // 60
     ];

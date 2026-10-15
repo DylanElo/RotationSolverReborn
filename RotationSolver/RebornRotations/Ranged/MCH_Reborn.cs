@@ -31,6 +31,8 @@ public sealed class MCH_Reborn : MachinistRotation
 	#region Countdown logic
 	protected override IAction? CountDownAction(float remainTime)
 	{
+		ResetQueenTracking();
+
 		if (AirAnchorCountdown && remainTime < 1f && AirAnchorPvE.EnoughLevel && AirAnchorPvE.CanUse(out var act))
 		{
 			return act;
@@ -517,7 +519,7 @@ public sealed class MCH_Reborn : MachinistRotation
 		(70, 100, 8),
 		(100, 50, 9),
 		(50, 80, 10),
-		(70, 100, 11),
+		(80, 100, 11),
 		(100, 50, 12),
 		(50, 60, 13)
 	];
@@ -557,6 +559,22 @@ public sealed class MCH_Reborn : MachinistRotation
 	private void AdvanceStep()
 	{
 		_currentStep++;
+	}
+
+	/// <summary>
+	/// Queen step tracking is per-pull state; without a reset the table desyncs on every pull after the first.
+	/// </summary>
+	private void ResetQueenTracking()
+	{
+		_currentStep = 0;
+		_lastTrackedSummonBatteryPower = LastSummonBatteryPower;
+		foundStepPair = false;
+	}
+
+	public override void OnTerritoryChanged()
+	{
+		ResetQueenTracking();
+		base.OnTerritoryChanged();
 	}
 	private bool UseQueen(out IAction? act, IAction nextGCD)
 	{
