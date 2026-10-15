@@ -545,11 +545,8 @@ Check("100 Battery burst reserve is not a minimum-gauge release", false,
 var holdReassemble = Method(policy, "ShouldHoldReassembleForBuffs");
 var spendReassembleInPartyBurst = Method(policy, "ShouldSpendReassembleInPartyBurst");
 var spendReassembleOnDrill = Method(burstActionPolicy, "ShouldSpendReassembleOnDrill");
-var lineHits = Method(burstActionPolicy, "LineHits");
-var origin = System.Numerics.Vector2.Zero;
-var aimAt = new System.Numerics.Vector2(0, 10);
-Check("Chain Saw line: stacked pair both hit", 2, lineHits.Invoke(null, [origin, aimAt, new[] { (aimAt, 1f), (new System.Numerics.Vector2(1.5f, 11), 1f) }])!);
-Check("Chain Saw line: enemy 6y off the line and one behind the player missed", 1, lineHits.Invoke(null, [origin, aimAt, new[] { (aimAt, 1f), (new System.Numerics.Vector2(6, 10), 1f), (new System.Numerics.Vector2(0, -5), 1f) }])!);
+// Cleave allocation is covered by RangedActionSelectionCheck using the production selectors
+// and native targeting results; the rotation no longer carries a second geometry model.
 // Reassemble is aligned to buffs the same way Wildfire and Queen are, but only when the hold is
 // free: never at max charges (that loses a charge outright), and never once buffs are already up.
 Check("a near buff window holds a spare Reassemble charge", true,
@@ -1160,14 +1157,14 @@ Check("BRD CT Finale: 9s of CT left, 2 Codas, BV cooling", true, soloFinale.Invo
 Check("BRD CT Finale: 25s left would expire the buff in downtime", false, soloFinale.Invoke(null, [true, 25f, 3, true]));
 Check("BRD CT Finale: 5s left is too late for P5", false, soloFinale.Invoke(null, [true, 5f, 2, true]));
 Check("BRD CT Finale: 1 Coda is too weak", false, soloFinale.Invoke(null, [true, 9f, 1, true]));
+Check("BRD CT Finale: BV ready means the normal burst", false, soloFinale.Invoke(null, [true, 9f, 3, false]));
+Check("BRD CT Finale: unknown downtime end", false, soloFinale.Invoke(null, [true, float.MaxValue, 3, true]));
+Check("BRD CT Finale: not outside FRU CT", false, soloFinale.Invoke(null, [false, 9f, 3, true]));
 Check("BRD CT Finale: 7.3s left (game unblocked late, 10-14 pull) still goes", true, soloFinale.Invoke(null, [true, 7.3f, 3, true]));
 var ctReturnIn = Method(assembly.GetType($"{ns}BRD_Reborn", true)!, "CtReturnIn");
 Check("BRD CT return: Return 5s left -> 17.2s", 17.2f, ctReturnIn.Invoke(null, [5f, 0f, 3f]));
 Check("BRD CT return: Stun 6.2s left (10-15 unblock) -> 9.35s, inside the window", 9.35f, ctReturnIn.Invoke(null, [0f, 6.2f, 3f]));
 Check("BRD CT return: no debuffs falls back to BossMod", 3f, ctReturnIn.Invoke(null, [0f, 0f, 3f]));
-Check("BRD CT Finale: BV ready means the normal burst", false, soloFinale.Invoke(null, [true, 9f, 3, false]));
-Check("BRD CT Finale: unknown downtime end", false, soloFinale.Invoke(null, [true, float.MaxValue, 3, true]));
-Check("BRD CT Finale: not outside FRU CT", false, soloFinale.Invoke(null, [false, 9f, 3, true]));
 var brdType = assembly.GetType($"{ns}BRD_Reborn", true)!;
 var refreshPays = Method(brdType, "BurstEndRefreshPays");
 var dotRefreshed = Method(brdType, "DotRefreshed");

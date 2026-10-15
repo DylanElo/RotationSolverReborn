@@ -329,12 +329,14 @@ public class BRD_Reborn : BardRotation
 	/// plus the rest of the 45s at (now - 1), which without it would tick after an unbuffed refresh. Cost: the clipped remaining time
 	/// brings the next Iron Jaws forward, ~IronJawsLoss * remain / 45. Unknown snapshot reads 1 (unbuffed).
 	/// Ticks after the target dies count for nothing: both spans stop at its TTK (NaN or 0 = unknown, the full 45s).
+	/// If the old DoTs outlive the target, no later refresh is saved: pay the full buffed filler loss now.
 	/// </summary>
 	internal static bool BurstEndRefreshPays(float now, float dotSnapshot, float remain, float ttk = float.NaN)
 	{
 		var horizon = ttk > 0f ? Math.Min(ttk, DotDuration) : DotDuration;
 		var clipped = Math.Min(remain, horizon);
-		return DotPotencyPerSecond * (clipped * (now - dotSnapshot) + (horizon - clipped) * (now - 1f)) > IronJawsLoss * remain / DotDuration;
+		var cost = ttk > 0f && ttk <= remain ? IronJawsLoss * now : IronJawsLoss * remain / DotDuration;
+		return DotPotencyPerSecond * (clipped * (now - dotSnapshot) + (horizon - clipped) * (now - 1f)) > cost;
 	}
 
 	/// <summary>Finale's least lead on the CT return to be back (110s) for P5's burst, which comes ~102-108s after the return.</summary>
@@ -351,8 +353,6 @@ public class BRD_Reborn : BardRotation
 	/// and Battle Voice still cooling, so it is never the normal burst. CodaGrab rebuilds the Codas in the P4->P5 gap.
 	/// </summary>
 	// ponytail: the 8s lead assumes P5's burst ~102s+ after the CT return (Mana group 102s, Xw 108s); a faster P4 kill shrinks it.
-	internal static bool ShouldUseStandaloneFinale(bool fruCtDowntime, float downtimeLeft, int codas, bool battleVoiceCooling)
-		=> fruCtDowntime && downtimeLeft is >= StandaloneFinaleLead and <= StandaloneFinaleLatest && codas >= 2 && battleVoiceCooling;
 	/// <summary>
 	/// Seconds until the CT return, from our own debuffs (2 pulls): the bosses came back 19.1-19.3s after Return (7s) landed and
 	/// 3.1-3.2s after the Stun that follows it ended. BossMod's estimate ran ~5.5s early, which closed the Finale window before the
@@ -361,6 +361,8 @@ public class BRD_Reborn : BardRotation
 	internal static float CtReturnIn(float returnLeft, float stunLeft, float bossModEstimate)
 		=> returnLeft > 0f ? returnLeft + 12.2f : stunLeft > 0f ? stunLeft + 3.15f : bossModEstimate;
 
+	internal static bool ShouldUseStandaloneFinale(bool fruCtDowntime, float downtimeLeft, int codas, bool battleVoiceCooling)
+		=> fruCtDowntime && downtimeLeft is >= StandaloneFinaleLead and <= StandaloneFinaleLatest && codas >= 2 && battleVoiceCooling;
 
 	private SongTrack GetNextSongTrack(SongTrack currentSong)
 	{
@@ -805,6 +807,60 @@ public class BRD_Reborn : BardRotation
 
 		// DoTs before the AoE fillers: with Ladonsbite at 2 targets the P4 pair never got DoTs, and Battle Voice
 		// waits for both DoTs on the target, so P4 never burst.
+		if (TryApplyDoT(out act))
+		{
+			return true;
+		}
+
+		//aoe
+		if (ShadowbitePvE.CanUse(out act))
+		{
+			return true;
+		}
+
+		if (WideVolleyPvE.CanUse(out act))
+		{
+			return true;
+		}
+
+		if (LadonsbitePvE.CanUse(out act) && !HasHawksEye && !HasBarrage)
+		{
+			return true;
+		}
+
+		if (QuickNockPvE.CanUse(out act) && !HasHawksEye && !HasBarrage)
+		{
+			return true;
+		}
+
+		if (RefulgentArrowPvE.CanUse(out act, skipComboCheck: true))
+		{
+			return true;
+		}
+
+		if (!RefulgentArrowPvE.Info.EnoughLevelAndQuest() && StraightShotPvE.CanUse(out act))
+		{
+			return true;
+		}
+
+		if (BurstShotPvE.CanUse(out act) && !HasHawksEye && !HasBarrage)
+		{
+			return true;
+		}
+
+		if (HeavyShotPvE.CanUse(out act) && !HasHawksEye && !HasBarrage)
+		{
+			return true;
+		}
+
+		return base.GeneralGCD(out act);
+	}
+	#endregion
+
+	#region Extra Methods
+	private bool TryApplyDoT(out IAction? act)
+	{
+		act = null;
 		if (StormbitePvE.EnoughLevel && UptimeForDoT)
 		{
 			if (StormbitePvE.CanUse(out act))
@@ -867,52 +923,9 @@ public class BRD_Reborn : BardRotation
 			}
 		}
 
-		//aoe
-		if (ShadowbitePvE.CanUse(out act))
-		{
-			return true;
-		}
-
-		if (WideVolleyPvE.CanUse(out act))
-		{
-			return true;
-		}
-
-		if (LadonsbitePvE.CanUse(out act) && !HasHawksEye && !HasBarrage)
-		{
-			return true;
-		}
-
-		if (QuickNockPvE.CanUse(out act) && !HasHawksEye && !HasBarrage)
-		{
-			return true;
-		}
-
-		if (RefulgentArrowPvE.CanUse(out act, skipComboCheck: true))
-		{
-			return true;
-		}
-
-		if (!RefulgentArrowPvE.Info.EnoughLevelAndQuest() && StraightShotPvE.CanUse(out act))
-		{
-			return true;
-		}
-
-		if (BurstShotPvE.CanUse(out act) && !HasHawksEye && !HasBarrage)
-		{
-			return true;
-		}
-
-		if (HeavyShotPvE.CanUse(out act) && !HasHawksEye && !HasBarrage)
-		{
-			return true;
-		}
-
-		return base.GeneralGCD(out act);
+		return false;
 	}
-	#endregion
 
-	#region Extra Methods
 	private bool CanUseApexArrow(out IAction act)
 	{
 		if (!ApexArrowPvE.CanUse(out act))
@@ -920,8 +933,8 @@ public class BRD_Reborn : BardRotation
 			return false;
 		}
 
-		// Only when the DoTs will be refreshed: before downtime they are skipped on purpose, and missing DoTs held capped Apex.
-		if (UptimeForDoT && (CurrentTarget?.WillStatusEndGCD(1, 1, true, StatusID.Windbite, StatusID.Stormbite, StatusID.VenomousBite, StatusID.CausticBite) ?? false))
+		// Defer only to a DoT the rotation can actually apply on its selected target.
+		if (TryApplyDoT(out _))
 		{
 			return false;
 		}

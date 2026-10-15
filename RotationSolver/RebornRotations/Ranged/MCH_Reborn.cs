@@ -341,21 +341,27 @@ public class MCH_Reborn : MachinistRotation
 	}
 
 	/// <summary>
-	/// Reassemble crits every enemy a tool hits: with one charge, Chain Saw due the GCD after Air Anchor and 2+ enemies in its
-	/// line, the charge goes on Chain Saw. Not at max charges (it would overcap) or on a dump request.
+	/// Reserve one charge for the next Chain Saw cleave without delaying tools or capping Reassemble.
 	/// </summary>
-	private bool HoldReassembleForChainSawCleave(IBaseAction airAnchor)
+	private bool HoldReassembleForChainSawCleave()
 	{
-		if (!ChainSawPvE.EnoughLevel || ShouldSpendRemainingReassemble
+		var nextToolIn = DataCenter.DefaultGCDRemain + GCDTime(1);
+		if (ShouldSpendRemainingReassemble || ShouldHoldTool(ChainSawPvE)
 			|| ReassemblePvE.Cooldown.CurrentCharges >= ReassemblePvE.Cooldown.MaxCharges
-			|| !ChainSawPvE.Cooldown.WillHaveOneCharge(DataCenter.DefaultGCDRemain + GCDTime(1))
-			|| Player == null || airAnchor.Target.Target is not { } aim)
+			|| ReassemblePvE.Cooldown.RecastTimeRemain <= nextToolIn
+			|| HasExcavatorReady
+			|| ((IsLastComboAction(true, SplitShotPvE) || IsLastComboAction(true, SlugShotPvE))
+				&& LiveComboTime <= GCDTime(3))
+			|| (HasFullMetalMachinist && StatusHelper.PlayerWillStatusEnd(3 + GCDTime(1), true, StatusID.FullMetalMachinist))
+			|| (DrillPvE.IsEnabled && DrillPvE.EnoughLevel
+				&& (DrillPvE.Cooldown.CurrentCharges >= DrillPvE.Cooldown.MaxCharges
+					|| (DrillPvE.Cooldown.CurrentCharges == 0 && DrillPvE.Cooldown.WillHaveOneCharge(nextToolIn))
+					|| DrillPvE.Cooldown.RecastTimeRemain <= nextToolIn)))
 		{
 			return false;
 		}
 
-		static System.Numerics.Vector2 Xz(IGameObject o) => new(o.Position.X, o.Position.Z);
-		return MCHBurstActionPolicy.LineHits(Xz(Player), Xz(aim), AllHostileTargets.Select(t => (Xz(t), t.HitboxRadius))) >= 2;
+		return ChainSawPvE.CanUse(out _) && ChainSawPvE.Target.AffectedTargets.Length >= 2;
 	}
 
 	// Logic for using attack abilities outside of GCD, focusing on burst windows and cooldown management.
@@ -374,7 +380,7 @@ public class MCH_Reborn : MachinistRotation
 			ReassemblePvE.Cooldown.CurrentCharges > 0 && !HasReassembled &&
 			(nextGCD.IsTheSameTo(true, [ChainSawPvE, ExcavatorPvE])
 			|| (!ChainSawPvE.EnoughLevel && nextGCD.IsTheSameTo(true, SpreadShotPvE) && ((IBaseAction)nextGCD).Target.AffectedTargets.Length >= (SpreadShotMasteryTrait.EnoughLevel ? 4 : 5))
-			|| (nextGCD.IsTheSameTo(false, [AirAnchorPvE]) && !HoldReassembleForChainSawCleave((IBaseAction)nextGCD))
+			|| (nextGCD.IsTheSameTo(false, [AirAnchorPvE]) && !HoldReassembleForChainSawCleave())
 			|| (!ChainSawPvE.EnoughLevel && nextGCD.IsTheSameTo(true, DrillPvE))
 			|| (!DrillPvE.EnoughLevel && nextGCD.IsTheSameTo(true, CleanShotPvE))
 			|| (!CleanShotPvE.EnoughLevel && nextGCD.IsTheSameTo(false, HotShotPvE))
@@ -886,19 +892,6 @@ internal static class MCHBurstActionPolicy
 
 	internal static int AutoCrossbowTargetCount(bool upgradedShots) => upgradedShots ? 6 : 3;
 
-	/// <summary>Enemies in a Chain Saw line (25y long, 4y wide) from the player through the aim point, hitboxes included.</summary>
-	internal static int LineHits(System.Numerics.Vector2 player, System.Numerics.Vector2 aim, IEnumerable<(System.Numerics.Vector2 Pos, float Radius)> enemies)
-	{
-		var dir = aim - player;
-		if (dir.LengthSquared() < 0.0001f) return 0;
-		dir = System.Numerics.Vector2.Normalize(dir);
-		return enemies.Count(e =>
-		{
-			var d = e.Pos - player;
-			var along = System.Numerics.Vector2.Dot(d, dir);
-			return along >= -e.Radius && along - e.Radius <= 25f && MathF.Abs(d.X * dir.Y - d.Y * dir.X) <= 2f + e.Radius;
-		});
-	}
 	internal static bool ShouldUseWildfireAroundFullMetal(
 		bool lastGcdWasFullMetal,
 		bool recoverLostFullMetalBurst, bool lateWeave, bool hasHeatForWildfire)

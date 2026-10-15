@@ -1,0 +1,55 @@
+public static class Scenarios {
+ static int checks,failures;
+ static void Check(string name,Action test){try{StatusHelper.Statuses.Clear();DataCenter.DefaultGCDRemain=0;DataCenter.AverageTTK=1000;test();checks++;Console.WriteLine("PASS "+name);}catch(Exception e){failures++;Console.WriteLine("FAIL "+name+": "+e.Message);}}
+ static void Eq(IAction? actual,ActionID expected){if((actual?.ID??ActionID.None)!=expected)throw new Exception($"expected {expected}, selected {actual?.ID.ToString()??"none"}");}
+ static Brd Bard(){var b=new Brd();b.BurstShotPvE.Available=true;b.ApexArrowPvE.Available=true;b.SoulVoice=100;b.BattleVoicePvE.Cooldown.CurrentCharges=0;b.BattleVoicePvE.Cooldown.RecastTimeRemain=50;return b;}
+ static Sync Machinist(){var m=new Sync();m.AirAnchorPvE.Available=true;m.ChainSawPvE.Available=true;m.ReassemblePvE.Available=true;m.ReassemblePvE.Cooldown.MaxCharges=2;m.ReassemblePvE.Cooldown.CurrentCharges=1;m.AirAnchorPvE.Target.Target=m.CurrentTarget;m.AllHostileTargets.Add(m.CurrentTarget!);m.AllHostileTargets.Add(new(){GameObjectId=2,Position=new(0,0,12)});m.HeatedSplitShotPvE.Available=true;m.ReassemblePvE.Cooldown.RecastTimeRemain=30;m.DrillPvE.Cooldown.CurrentCharges=0;m.DrillPvE.Cooldown.MaxCharges=2;m.DrillPvE.Cooldown.RecastTimeRemain=40;m.ChainSawPvE.Target.AffectedTargets=m.AllHostileTargets.ToArray();m.ChainSawPvE.TargetInfo.Resolved=m.ChainSawPvE.Target;return m;}
+ static void Snapshot(Brd b,float ttk){b.SoulVoice=0;b.ApexArrowPvE.Available=false;b.CurrentTarget!.TTK=ttk;b.CurrentTarget.Statuses[StatusID.Stormbite]=20;b.CurrentTarget.Statuses[StatusID.CausticBite]=20;b.AllHostileTargets.Add(b.CurrentTarget);b._dots[1]=(20,1.4f);b.IronJawsPvE.Target.Target=b.CurrentTarget;b.IronJawsPvE.Setting.TargetStatusProvide=[StatusID.Stormbite,StatusID.CausticBite];b.IronJawsPvE.Available=true;b.IronJawsPvE.StatusCheck=skip=>skip;b.Buffs.Add(new(){Name="Synthetic",Ids=[StatusID.BattleVoice]});StatusHelper.Statuses[StatusID.BattleVoice]=2;}
+ public static int Run(){
+ Check("BRD short uptime spends capped Apex",()=>{var b=Bard();b.BMRDowntimeIn=7;Eq(b.GCD(),ActionID.ApexArrowPvE);});
+ Check("BRD ordinary Iron Jaws precedes Apex",()=>{var b=Bard();b.IronJawsPvE.Available=true;Eq(b.GCD(),ActionID.IronJawsPvE);});
+ Check("BRD dying target preserves stronger snapshot",()=>{var b=Bard();Snapshot(b,10);Eq(b.GCD(),ActionID.BurstShotPvE);});
+ Check("BRD dying target rejects marginal stronger snapshot",()=>{var b=Bard();Snapshot(b,10);b._dots[1]=(20,1f);b.BuffWeights["Synthetic"]=.4f;Eq(b.GCD(),ActionID.BurstShotPvE);});
+ Check("BRD dying target permits refresh with enough real gain",()=>{var b=Bard();Snapshot(b,20);b._dots[1]=(20,1f);b.BuffWeights["Synthetic"]=1f;Eq(b.GCD(),ActionID.IronJawsPvE);});
+ Check("BRD long target permits profitable refresh",()=>{var b=Bard();Snapshot(b,1000);Eq(b.GCD(),ActionID.IronJawsPvE);});
+ foreach(var ttk in new[]{float.NaN,0f})Check("BRD unknown TTK retains refresh "+ttk,()=>{var b=Bard();Snapshot(b,ttk);Eq(b.GCD(),ActionID.IronJawsPvE);});
+ Check("BRD disabled DoTs release Apex",()=>{var b=Bard();b.StormbitePvE.Available=true;b.CausticBitePvE.Available=true;b.StormbitePvE.IsEnabled=false;b.CausticBitePvE.IsEnabled=false;Eq(b.GCD(),ActionID.ApexArrowPvE);});
+ Check("BRD boss-only DoTs release Apex on nonboss",()=>{var b=Bard();b.DOTBoss=true;b.StormbitePvE.Available=true;b.CausticBitePvE.Available=true;b.StormbitePvE.Target.Target!.Boss=false;b.CausticBitePvE.Target.Target!.Boss=false;Eq(b.GCD(),ActionID.ApexArrowPvE);});
+ Check("BRD usable missing DoT precedes Apex",()=>{var b=Bard();b.StormbitePvE.Available=true;Eq(b.GCD(),ActionID.StormbitePvE);});
+ Check("BRD fully dotted target releases Apex",()=>{var b=Bard();b.CurrentTarget!.Statuses[StatusID.Stormbite]=40;b.CurrentTarget.Statuses[StatusID.CausticBite]=40;b.StormbitePvE.Available=true;b.CausticBitePvE.Available=true;b.StormbitePvE.Target.Target=b.CurrentTarget;b.CausticBitePvE.Target.Target=b.CurrentTarget;Eq(b.GCD(),ActionID.ApexArrowPvE);});
+ Check("BRD resolved DoT target already dotted releases Apex",()=>{var b=Bard();b.StormbitePvE.Available=true;b.StormbitePvE.Target.Target!.Statuses[StatusID.Stormbite]=40;Eq(b.GCD(),ActionID.ApexArrowPvE);});
+ Check("BRD dotted current target still applies missing DoT on resolved target",()=>{var b=Bard();b.CurrentTarget!.Statuses[StatusID.Stormbite]=40;b.CurrentTarget.Statuses[StatusID.CausticBite]=40;b.StormbitePvE.Available=true;Eq(b.GCD(),ActionID.StormbitePvE);});
+ Check("BRD padding stops every GCD",()=>{var b=Bard();b.PaddingFatebreaker=true;Eq(b.GCD(),ActionID.None);});
+ Check("BRD standalone CT Finale releases Encore before DoTs",()=>{var b=Bard();b.SoulVoice=0;b.ApexArrowPvE.Available=false;b.HasRadiantFinale=true;b.HasBattleVoice=false;b.RadiantEncorePvE.Available=true;b.StormbitePvE.Available=true;Eq(b.GCD(),ActionID.RadiantEncorePvE);});
+ Check("BRD Barrage Refulgent precedes competing Apex and Resonant",()=>{var b=Bard();b.HasBarrage=true;b.RefulgentArrowPvE.Available=true;b.ResonantArrowPvE.Available=true;Eq(b.GCD(),ActionID.RefulgentArrowPvE);});
+ Check("BRD Blast precedes competing Resonant and Apex",()=>{var b=Bard();b.BlastArrowPvE.Available=true;b.ResonantArrowPvE.Available=true;Eq(b.GCD(),ActionID.BlastArrowPvE);});
+ Check("MCH cleave Air Anchor then Reassembled Chain Saw",()=>{var m=Machinist();Eq(m.GCD(),ActionID.AirAnchorPvE);Eq(m.OGCD(m.AirAnchorPvE),ActionID.None);m.AirAnchorPvE.Cooldown.CurrentCharges=0;m.AirAnchorPvE.Cooldown.RecastTimeRemain=40;Eq(m.GCD(),ActionID.ChainSawPvE);Eq(m.OGCD(m.ChainSawPvE),ActionID.ReassemblePvE);m.HasReassembled=true;Eq(m.GCD(),ActionID.ChainSawPvE);});
+ Check("MCH single target keeps Air Anchor Reassemble",()=>{var m=Machinist();m.AllHostileTargets.RemoveAt(1);m.ChainSawPvE.Target.AffectedTargets=m.AllHostileTargets.ToArray();Eq(m.OGCD(m.GCD()!),ActionID.ReassemblePvE);});
+ Check("MCH capped charges spend on Air Anchor",()=>{var m=Machinist();m.ReassemblePvE.Cooldown.CurrentCharges=2;Eq(m.OGCD(m.GCD()!),ActionID.ReassemblePvE);});
+ Check("MCH explicit dump spends on Air Anchor",()=>{var m=Machinist();m.ShouldSpendRemainingReassemble=true;Eq(m.OGCD(m.GCD()!),ActionID.ReassemblePvE);});
+ Check("MCH disabled Chain Saw cannot reserve Reassemble",()=>{var m=Machinist();m.ChainSawPvE.IsEnabled=false;Eq(m.OGCD(m.GCD()!),ActionID.ReassemblePvE);});
+ Check("MCH held Chain Saw cannot reserve Reassemble",()=>{var m=Machinist();m.Held.Add(ActionID.ChainSawPvE);Eq(m.OGCD(m.GCD()!),ActionID.ReassemblePvE);});
+ Check("MCH distant cooldown cannot reserve Reassemble",()=>{var m=Machinist();m.ChainSawPvE.Cooldown.CurrentCharges=0;m.ChainSawPvE.Cooldown.RecastTimeRemain=10;Eq(m.OGCD(m.GCD()!),ActionID.ReassemblePvE);});
+ Check("MCH future-only Chain Saw does not speculate Reassemble hold",()=>{var m=Machinist();m.ChainSawPvE.Cooldown.CurrentCharges=0;m.ChainSawPvE.Cooldown.RecastTimeRemain=2.5f;Eq(m.GCD(),ActionID.AirAnchorPvE);Eq(m.OGCD(m.AirAnchorPvE),ActionID.ReassemblePvE);});
+ Check("MCH existing Reassemble retains established ready-tool order",()=>{var m=Machinist();m.HasReassembled=true;Eq(m.GCD(),ActionID.AirAnchorPvE);});
+ Check("MCH existing Reassemble single target keeps Air Anchor",()=>{var m=Machinist();m.HasReassembled=true;m.ChainSawPvE.Target.AffectedTargets=[m.CurrentTarget!];Eq(m.GCD(),ActionID.AirAnchorPvE);});
+ Check("MCH Reassemble nearing charge cap cannot reserve",()=>{var m=Machinist();m.ReassemblePvE.Cooldown.RecastTimeRemain=2;Eq(m.OGCD(m.GCD()!),ActionID.ReassemblePvE);});
+ Check("MCH Drill charge cap cannot reserve",()=>{var m=Machinist();m.DrillPvE.Cooldown.CurrentCharges=2;Eq(m.OGCD(m.GCD()!),ActionID.ReassemblePvE);});
+ Check("MCH Drill next GCD cannot reserve",()=>{var m=Machinist();m.DrillPvE.Cooldown.RecastTimeRemain=2;Eq(m.OGCD(m.GCD()!),ActionID.ReassemblePvE);});
+ Check("MCH Excavator proc cannot reserve for Chain Saw",()=>{var m=Machinist();m.HasExcavatorReady=true;Eq(m.OGCD(m.GCD()!),ActionID.ReassemblePvE);});
+ Check("MCH target cannot meet Chain Saw TTK cannot reserve",()=>{var m=Machinist();DataCenter.AverageTTK=1;m.ChainSawPvE.Config.TimeToKill=5;Eq(m.OGCD(m.GCD()!),ActionID.ReassemblePvE);DataCenter.AverageTTK=1000;});
+ Check("MCH unlearned Chain Saw cannot reserve",()=>{var m=Machinist();m.ChainSawPvE.Info.Learned=false;Eq(m.OGCD(m.GCD()!),ActionID.ReassemblePvE);});
+ Check("MCH no native cleave targets cannot reserve",()=>{var m=Machinist();m.ChainSawPvE.Target.AffectedTargets=[];Eq(m.OGCD(m.GCD()!),ActionID.ReassemblePvE);});
+ Check("MCH resource hold prevents Reassemble",()=>{var m=Machinist();m.ShouldHoldFlexibleResources=true;Eq(m.OGCD(m.GCD()!),ActionID.None);});
+ Check("MCH expiring combo prevents reserving Reassemble",()=>{var m=Machinist();m.LastCombo=ActionID.SplitShotPvE;m.LiveComboTime=6;Eq(m.OGCD(m.GCD()!),ActionID.ReassemblePvE);});
+ Check("MCH expiring Full Metal prevents reserving Reassemble",()=>{var m=Machinist();m.HasFullMetalMachinist=true;StatusHelper.Statuses[StatusID.FullMetalMachinist]=4;Eq(m.OGCD(m.GCD()!),ActionID.ReassemblePvE);});
+ Check("MCH FRU standalone Barrel opens with Full Metal",()=>{var m=Machinist();m.UnclaimedBarrelBuffs=true;m.HasFullMetalMachinist=true;m.FullMetalFieldPvE.Available=true;Eq(m.GCD(),ActionID.FullMetalFieldPvE);});
+ Check("MCH FRU padding suppresses GCD and oGCD",()=>{var m=Machinist();m.PaddingFatebreaker=true;Eq(m.GCD(),ActionID.None);Eq(m.OGCD(m.AirAnchorPvE),ActionID.None);});
+ Check("MCH Wildfire handoff selects Full Metal and protects weave",()=>{var m=Machinist();m.HasFullMetalMachinist=true;m.HasWildfire=true;m.LastAction=ActionID.WildfirePvE;m.FullMetalFieldPvE.Available=true;Eq(m.GCD(),ActionID.FullMetalFieldPvE);Eq(m.OGCD(m.FullMetalFieldPvE),ActionID.None);});
+ Check("MCH unavailable selected tool prevents Reassemble",()=>{var m=Machinist();m.AirAnchorPvE.Cooldown.CurrentCharges=0;m.AirAnchorPvE.Cooldown.RecastTimeRemain=10;Eq(m.OGCD(m.AirAnchorPvE),ActionID.None);});
+ Console.WriteLine($"RESULT {checks} passed, {failures} failed; native action/game boundary simulated");return failures==0?0:1;
+ }
+}
+
+
+

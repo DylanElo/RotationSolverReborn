@@ -1,0 +1,79 @@
+interface IAction { ActionID ID { get; } }
+interface IBaseAction : IAction { FakeCooldown Cooldown {get;} FakeTarget Target {get;} }
+interface IGameObject { Vector3 Position {get;} }
+class IBattleChara : IGameObject {
+ public ulong GameObjectId=1; public Vector3 Position {get;set;} = new(0,0,10); public float HitboxRadius=1;
+ public bool Boss=true; public float TTK=1000; public Dictionary<StatusID,float> Statuses=new();
+ public bool HasStatus(bool own, params StatusID[] ids)=>ids.Any(i=>Statuses.GetValueOrDefault(i)>0);
+ public float StatusTime(bool own, params StatusID[] ids)=>ids.Where(Statuses.ContainsKey).Select(i=>Statuses[i]).DefaultIfEmpty(0).Min();
+ public bool WillStatusEnd(float seconds,bool own,params StatusID[] ids)=>StatusTime(own,ids)<=seconds;
+ public bool WillStatusEndGCD(int n,int offset,bool own,params StatusID[] ids)=>WillStatusEnd(n*2.5f+offset,own,ids);
+ public bool IsBossFromIcon()=>Boss; public float GetTTK()=>TTK;
+}
+class FakeCooldown {
+ public int CurrentCharges=1, MaxCharges=1; public float RecastTimeRemain,RecastTimeElapsed;
+ public bool IsCoolingDown=>RecastTimeRemain>0; public bool HasOneCharge=>CurrentCharges>0;
+ public bool WillHaveOneCharge(float seconds)=>CurrentCharges>0||RecastTimeRemain<=seconds;
+ public bool WillHaveXCharges(int n,float seconds)=>CurrentCharges>=n||RecastTimeRemain<=seconds;
+}
+class FakeTarget { public IBattleChara? Target=new(); public IBattleChara[] AffectedTargets=[]; }
+class FakeInfo { public bool Learned=true,EnoughLevel=true; public Func<bool> Eligibility=()=>true; public bool BasicCheck(bool a,bool b,bool c,bool d)=>Learned&&Eligibility(); public bool EnoughLevelAndQuest()=>Learned; }
+class FakeConfig {public float TimeToKill=0;}
+class FakeTargetInfo {public FakeTarget Resolved=new();public FakeTarget FindTarget(bool a,bool b,bool c,object? d)=>Resolved;}
+class FakeSetting { public StatusID[]? TargetStatusProvide; }
+class FakeAction : IBaseAction {
+ public ActionID ID {get;} public FakeCooldown Cooldown {get;}=new(); public FakeTarget Target {get;}=new();
+ public FakeInfo Info=new(); public FakeSetting Setting=new(); public FakeConfig Config=new();public FakeTargetInfo TargetInfo=new();public bool EnoughLevel=true,IsEnabled=true,Available;
+ public Func<bool,bool>? StatusCheck;
+ public FakeAction(ActionID id){ID=id;Info.Eligibility=()=>IsEnabled&&EnoughLevel;}
+ public bool CanUse(out IAction? act,bool usedUp=false,bool skipTTKCheck=false,bool skipComboCheck=false,bool skipStatusProvideCheck=false) {
+  var ok=Available&&IsEnabled&&EnoughLevel&&Info.EnoughLevelAndQuest()&&Cooldown.WillHaveOneCharge(DataCenter.DefaultGCDRemain)
+   && (skipTTKCheck||DataCenter.AverageTTK>=Config.TimeToKill)
+   && (StatusCheck?.Invoke(skipStatusProvideCheck)??true); act=ok?this:null; return ok;
+ }
+}
+static class Actions { public static bool IsTheSameTo(this IAction a,bool upgraded,params IAction[] b)=>b.Any(x=>x.ID==a.ID); }
+static class DataCenter { public static float DefaultGCDRemain=0,CalculatedActionAhead=.5f,AverageTTK=1000; }
+enum Song {None,WanderersMinuet,MagesBallad,ArmysPaeon}
+enum StatusType {Buff,Debuff}
+class StatusInfo {public string Name="",JobAbbr="";public StatusType Type;public StatusID[] Ids=[];}
+static class StatusHelper {
+ public static Dictionary<StatusID,float> Statuses=new();
+ public static bool PlayerHasStatus(bool own,params StatusID[] ids)=>ids.Any(i=>Statuses.GetValueOrDefault(i)>0);
+ public static bool PlayerWillStatusEnd(float t,bool own,params StatusID[] ids)=>ids.Where(Statuses.ContainsKey).Select(i=>Statuses[i]).DefaultIfEmpty(0).Min()<=t;
+ public static bool PlayerWillStatusEndGCD(int n,int o,bool own,params StatusID[] ids)=>PlayerWillStatusEnd(n*2.5f+o,own,ids);
+}
+enum MCHSyncPlusWildfireWeave { EveryBurst, Other }
+class Boundary {
+ // ACTIONS
+ public FakeInfo HotShotMasteryTrait=new(),SpreadShotMasteryTrait=new();
+ public bool PaddingFatebreaker,HasBarrage,HasHawksEye,HasRagingStrikes,HasBattleVoice,HasRadiantFinale,IsBurst=true,LongPlannedHold,DOTBoss;
+ public bool HasReassembled,IsOverheated,ShouldSpendRemainingReassemble,ShouldHoldFlexibleResources,ShouldHoldReassembleForBuffs;
+ public bool HasFullMetalMachinist,HasWildfire,ShouldCommitPersonalBurst,ShouldUseBarrelOnCooldown,ShouldHoldBarrel,ShouldUseWildfire;
+ public bool CanLateWeave,ShouldRecoverLostFullMetalBurst,HasHeatForHypercharge,WildfireResolvedTargetAllowed=true,ShouldHoldExcavatorForBattery,HasExcavatorReady,ShouldUseFullMetalField,BioMove,IsMoving;
+ public bool UnclaimedBarrelBuffs,PostFullMetalWildfirePayloadPending,DelayFullMetalForLeadingWildfire,PartyBurstActive,CanStartWildfirePayload;
+ public float SoulVoice,SoulVoiceConfig=100,BMRDowntimeIn=1000,WeaponRemain=1,WildfireLateWeaveWindow=.8f,WildfirePayloadWindow=10,LiveComboTime,Heat;
+ public float _hyperchargeStallStartedAt=-1,MaximumHyperchargeStall=2;
+ public bool InBurstStatus;
+ public int _finaleCodas; public Dictionary<string,float> BuffWeights=new(){{"Synthetic",.30f}};
+ public List<StatusInfo> Buffs=new(); public List<Song> Coda=new(); public Song Song; public bool InCombat=true;
+ public Dictionary<ulong,(float Remain,float Snapshot)> _dots=new();
+ public IBattleChara? CurrentTarget=new(),Player=new(){Position=Vector3.Zero}; public List<IBattleChara> AllHostileTargets=new();
+ public HashSet<ActionID> Held=new(); public ActionID LastAction,LastGCD,LastCombo;
+ public MCHSyncPlusWildfireWeave WildfireWeave=MCHSyncPlusWildfireWeave.Other;
+ public bool UptimeForDoT=>BMRDowntimeIn>=8;
+ public float GCDTime(int n)=>n*2.5f;
+ public bool SongEndAfter(float s)=>false;
+ public bool ShouldHoldTool(IAction a)=>Held.Contains(a.ID);
+ public bool IsLastAction(bool upgraded,params IAction[] a)=>a.Any(x=>x.ID==LastAction);
+ public bool IsLastGCD(bool upgraded,params IAction[] a)=>a.Any(x=>x.ID==LastGCD);
+ public bool IsLastComboAction(bool upgraded,params IAction[] a)=>a.Any(x=>x.ID==LastCombo);
+ public bool DowntimeWithin(float t)=>BMRDowntimeIn<=t;
+ public bool ToolChargeSoon(out IAction? a){a=null;return false;}
+ public bool UseQueen(out IAction? a,IAction next){a=null;return false;}
+ public float StallElapsed()=>0;
+ protected virtual bool GeneralGCD(out IAction? a){a=null;return false;}
+ protected virtual bool AttackAbility(IAction next,out IAction? a){a=null;return false;}
+ public IAction? GCD(){GeneralGCD(out var a);return a;}
+ public IAction? OGCD(IAction next){AttackAbility(next,out var a);return a;}
+}
