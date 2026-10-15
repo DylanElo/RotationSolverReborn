@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Compiles the real rotation sources against Fakes.cs (the RotationSolver.Basic/Dalamud surface they touch). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
+    <NoWarn>CS1591;CS0414;CS0169;CS0649;CS8618;CS0108;CS0114;CS8602;CS8604;CS8600;CS8625</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../RotationSolver.Basic/Rotations/Basic/BardRotation.cs" Link="Prod/BardRotation.cs" />
+    <Compile Include="../../RotationSolver/RebornRotations/Ranged/BRD_Reborn.cs" Link="Prod/BRD_Reborn.cs" />
+    <Compile Include="../../RotationSolver/RebornRotations/Ranged/BRD_Plan.cs" Link="Prod/BRD_Plan.cs" />
+    <Compile Include="../../RotationSolver/RebornRotations/FRUPad.cs" Link="Prod/FRUPad.cs" />
+    <None Include="timeline.py;gen.py;timelines/*.json" />
+    <Using Include="RotationSolver.Basic" /><Using Include="RotationSolver.Basic.Actions" /><Using Include="RotationSolver.Basic.Attributes" />
+    <Using Include="RotationSolver.Basic.Configuration.RotationConfig" /><Using Include="RotationSolver.Basic.Data" /><Using Include="RotationSolver.Basic.Helpers" />
+    <Using Include="RotationSolver.Basic.Rotations" /><Using Include="RotationSolver.Basic.Rotations.Basic" /><Using Include="Dalamud.Game.ClientState.Objects.Types" />
+    <Using Include="Dalamud.Game.ClientState.JobGauge.Enums" /><Using Include="Dalamud.Interface" /><Using Include="Dalamud.Bindings.ImGui" />
+  </ItemGroup>
+</Project>
