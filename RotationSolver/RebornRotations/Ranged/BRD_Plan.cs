@@ -102,12 +102,17 @@ public sealed class BRD_Plan : BRD_Reborn
 	private protected override float PlannedBurstIn => CurrentWindow?.StartIn ?? (_planSeen ? 999f : 0f);
 
 	private protected override bool PotionNow => InLateGrace ? _windowPotion
-		: CurrentWindow is { } w ? PotsAhead(w.Potion, w.StartIn)
+		: CurrentWindow is { } w ? PotsAhead(w.Potion, w.StartIn, BattleVoicePvE.Cooldown.WillHaveOneCharge(w.StartIn))
 		: !_planSeen && base.PotionNow;
 
 	private protected override bool PotionBeforeBurst => CurrentWindow is { Potion: true, StartIn: > 0f };
 
-	internal static bool PotsAhead(bool potion, float startIn) => potion && startIn <= PotionLead;
+	/// <summary>
+	/// Up to PotionLead ahead of a potion window, if Battle Voice (which the burst waits for) is back by its start; like MCH Plan's
+	/// Wildfire check. A burst that drifted past the window would otherwise pot up to 10s early and lose that much of the tincture.
+	/// </summary>
+	internal static bool PotsAhead(bool potion, float startIn, bool burstBackInTime)
+		=> potion && startIn <= PotionLead && (startIn <= 0f || burstBackInTime);
 
 	internal static bool HoldsBurst(float? startIn, bool partyRaidBuffUp, bool planSeen, bool inLateGrace)
 		=> !inLateGrace && (startIn is float s ? !IsOpen(s, partyRaidBuffUp) : planSeen);

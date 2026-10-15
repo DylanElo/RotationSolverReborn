@@ -966,9 +966,9 @@ var planSnapshotCtor = assembly.GetType($"{ns}MCHPlanSnapshot", true)!.GetConstr
 var planEvaluate = Method(planScheduler, "Evaluate");
 (object Gate, object Plan, string Reason) PlanDecide(float startIn, bool buffs = false,
 	bool banked = false, float downtimeIn = float.MaxValue, bool autoBurst = true,
-	bool allBuffs = true, float secondsIn = 0f, float overlapWait = 6f, bool justAfter = false)
+	bool allBuffs = true, float secondsIn = 0f, float overlapWait = 6f, bool justAfter = false, bool started = true)
 {
-	var d = planEvaluate.Invoke(null, [planSnapshotCtor.Invoke([autoBurst, false, banked, downtimeIn, 10f, startIn, buffs, allBuffs, secondsIn, overlapWait, justAfter])])!;
+	var d = planEvaluate.Invoke(null, [planSnapshotCtor.Invoke([autoBurst, false, banked, downtimeIn, 10f, startIn, buffs, allBuffs, secondsIn, overlapWait, justAfter, started])])!;
 	return (gateProp.GetValue(d)!, planProp.GetValue(d)!, (string)reasonProp.GetValue(d)!);
 }
 Check("plan: open window without raid buffs holds Wildfire", hold, PlanDecide(-1f).Gate);
@@ -997,6 +997,26 @@ Check("plan: ... and commits once the wait from the opening has run", commit,
 Check("plan: late partial buffs just after a window commit after the wait", commit,
 	PlanDecide(100f, buffs: true, allBuffs: false, secondsIn: 6f, justAfter: true).Gate);
 Check("plan: no overlap wait on adds commits partial buffs", commit, PlanDecide(-1f, buffs: true, allBuffs: false, overlapWait: 0f).Gate);
+Check("plan: a lone early buff 5s out does not slide the window", hold,
+	PlanDecide(5f, buffs: true, allBuffs: false, secondsIn: 3f, started: false).Gate);
+Check("plan: a lone early buff 1s out still banks, the wait has not started", hold,
+	PlanDecide(1f, buffs: true, allBuffs: false, secondsIn: 10f, started: false).Gate);
+Check("plan: lone early buff: the wait counts from the planned start", hold,
+	PlanDecide(-2f, buffs: true, allBuffs: false, secondsIn: 12f, started: false).Gate);
+Check("plan: lone early buff commits once the wait from the planned start has run", commit,
+	PlanDecide(-6f, buffs: true, allBuffs: false, secondsIn: 16f, started: false).Gate);
+Check("plan: lone early buff commits early when downtime is too close", commit,
+	PlanDecide(3f, buffs: true, allBuffs: false, secondsIn: 2f, started: false, downtimeIn: 15f).Gate);
+Check("plan: the party's burst 5s early still slides the window", commit,
+	PlanDecide(2f, buffs: true, allBuffs: false, secondsIn: 6f).Gate);
+var burstLive = Method(planScheduler, "BurstLive");
+Check("plan, no party buffs: open window is the burst", true, burstLive.Invoke(null, [false, false, -0.5f, false]));
+Check("plan, no party buffs: window ahead is not", false, burstLive.Invoke(null, [false, false, 5f, false]));
+Check("plan, no party buffs: late grace after a missed window still bursts", true, burstLive.Invoke(null, [false, false, 100f, true]));
+Check("plan, party sync: open window still waits for live buffs", false, burstLive.Invoke(null, [true, false, -0.5f, false]));
+Check("plan, party sync: live buffs confirm", true, burstLive.Invoke(null, [true, true, 5f, false]));
+Check("plan, no party buffs: open window commits Wildfire", commit,
+	PlanDecide(-0.5f, buffs: (bool)burstLive.Invoke(null, [false, false, -0.5f, false])!, allBuffs: true).Gate);
 
 // Offline walk over the FRU plan as deployed (P5 pull clock), party buffs 1s into each window:
 // Wildfire in every window, potions in every potion window, Wildfire saved across the P4 -> P5 transition.
@@ -1119,10 +1139,16 @@ Check("BRD Plan: 5s early without party buffs holds", false, brdPlanOpen.Invoke(
 Check("BRD Plan: party buffs 5s early pull the window in", true, brdPlanOpen.Invoke(null, [5f, true]));
 Check("BRD Plan: party buffs 20s early do not", false, brdPlanOpen.Invoke(null, [20f, true]));
 var brdPotsAhead = Method(assembly.GetType($"{ns}BRD_Plan", true)!, "PotsAhead");
-Check("BRD Plan: potion window 10s out pots now", true, brdPotsAhead.Invoke(null, [true, 10f]));
-Check("BRD Plan: potion window 12s out waits", false, brdPotsAhead.Invoke(null, [true, 12f]));
-Check("BRD Plan: open potion window still pots", true, brdPotsAhead.Invoke(null, [true, -3f]));
-Check("BRD Plan: plain window never pots", false, brdPotsAhead.Invoke(null, [false, 5f]));
+Check("BRD Plan: potion window 10s out pots now", true, brdPotsAhead.Invoke(null, [true, 10f, true]));
+Check("BRD Plan: potion window 12s out waits", false, brdPotsAhead.Invoke(null, [true, 12f, true]));
+Check("BRD Plan: open potion window still pots", true, brdPotsAhead.Invoke(null, [true, -3f, false]));
+Check("BRD Plan: plain window never pots", false, brdPotsAhead.Invoke(null, [false, 5f, true]));
+Check("BRD Plan: no early pot if Battle Voice is not back for the window", false, brdPotsAhead.Invoke(null, [true, 8f, false]));
+var brdPotionFits = Method(assembly.GetType($"{ns}BRD_Reborn", true)!, "PotionFitsBurst");
+Check("BRD potion: Battle Voice out, Raging Strikes next", true, brdPotionFits.Invoke(null, [true, 0f]));
+Check("BRD potion: fresh Raging Strikes still pots", true, brdPotionFits.Invoke(null, [true, 18f]));
+Check("BRD potion: back 8s into a burst waits for the next", false, brdPotionFits.Invoke(null, [true, 12f]));
+Check("BRD potion: Raging Strikes ready in downtime does not pot", false, brdPotionFits.Invoke(null, [false, 0f]));
 var mchPotsAhead = Method(assembly.GetType($"{ns}MCHPlanScheduler", true)!, "PotsAhead");
 Check("MCH Plan: potion window 9s out pots ahead", true, mchPotsAhead.Invoke(null, [true, 9f, true]));
 Check("MCH Plan: potion window 12s out waits", false, mchPotsAhead.Invoke(null, [true, 12f, true]));

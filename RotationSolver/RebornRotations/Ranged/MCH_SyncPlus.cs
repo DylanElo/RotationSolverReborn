@@ -213,7 +213,7 @@ public class MCH_SyncPlus : MCH_Reborn
 	/// status, so one off-cycle Dokumori on a trash pull would otherwise raise the Queen target to
 	/// 100 and hard-hold the Battery behind a window that is not a raid burst.
 	/// </summary>
-	private bool SignificantPartyBurstActive => PartyBurstActive
+	private protected bool SignificantPartyBurstActive => PartyBurstActive
 		&& MCHSyncPlusPolicy.IsSignificantPartyBurst(_activeAnchorJobs, _expectedAnchorJobs);
 	private protected float OverlapWait => IsCurrentTargetBoss
 		? MCHSyncPlusPolicy.EffectiveOverlapWait(_shortestActivePartyBuffRemaining, WildfirePayloadWindow, OverlapWaitSeconds)
@@ -365,6 +365,13 @@ public class MCH_SyncPlus : MCH_Reborn
 		&& DataCenter.Territory?.ContentType == RotationSolver.Basic.Data.TerritoryContentType.Dungeons;
 	private bool SynchronizePartyBurst => SyncPlusBurstPlan != MCHSyncPlusPlan.Personal
 		&& !(AutomaticDungeon && SyncPlusBurstPlan == MCHSyncPlusPlan.Automatic) && HasPartyBurstSources;
+	/// <summary>
+	/// Wildfire and Barrel wait for live raid buffs. Trust party buffs with buff jobs present never takes the personal-burst
+	/// Commit, even when no buff was observed in the first 30s (HasPartyBurstSources then reads 0). Burst decisions only;
+	/// Queen/Reassemble keep reading SynchronizePartyBurst.
+	/// </summary>
+	private protected bool WaitsForPartyBuffs
+		=> SynchronizePartyBurst || SyncPlusBurstPlan == MCHSyncPlusPlan.TrustParty && Buffs.Count > 0;
 	protected override bool TimelineEnabled => UseEncounterTimeline;
 	private protected bool TimelineAvailable => TimelineEnabled && BMRActive;
 	// "The opener Queen has not gone out yet", with no clock and no last-GCD dependency. Both
@@ -495,10 +502,7 @@ public class MCH_SyncPlus : MCH_Reborn
 			_decision = PlannedDecision() ?? MCHSyncPlusScheduler.Evaluate(new MCHSyncPlusSnapshot(
 				IsBurst,
 				ReserveBurst,
-				// Trust party buffs with buff jobs present never takes the personal-burst Commit, even when no
-				// buff was observed in the first 30s (HasPartyBurstSources then reads 0): Wildfire/Barrel wait
-				// for live buffs. Scheduler only; Queen/Reassemble keep reading SynchronizePartyBurst.
-				SynchronizePartyBurst || SyncPlusBurstPlan == MCHSyncPlusPlan.TrustParty && Buffs.Count > 0,
+				WaitsForPartyBuffs,
 				SyncPlusBurstPlan == MCHSyncPlusPlan.TrustParty,
 				WildfirePvE.Cooldown.HasOneCharge,
 				WildfirePvE.Cooldown.WillHaveOneCharge(LookAheadSeconds),
