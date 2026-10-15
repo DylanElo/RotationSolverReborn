@@ -1160,6 +1160,11 @@ Check("BRD CT Finale: 9s of CT left, 2 Codas, BV cooling", true, soloFinale.Invo
 Check("BRD CT Finale: 25s left would expire the buff in downtime", false, soloFinale.Invoke(null, [true, 25f, 3, true]));
 Check("BRD CT Finale: 5s left is too late for P5", false, soloFinale.Invoke(null, [true, 5f, 2, true]));
 Check("BRD CT Finale: 1 Coda is too weak", false, soloFinale.Invoke(null, [true, 9f, 1, true]));
+Check("BRD CT Finale: 7.3s left (game unblocked late, 10-14 pull) still goes", true, soloFinale.Invoke(null, [true, 7.3f, 3, true]));
+var ctReturnIn = Method(assembly.GetType($"{ns}BRD_Reborn", true)!, "CtReturnIn");
+Check("BRD CT return: Return 5s left -> 17.2s", 17.2f, ctReturnIn.Invoke(null, [5f, 0f, 3f]));
+Check("BRD CT return: Stun 6.2s left (10-15 unblock) -> 9.35s, inside the window", 9.35f, ctReturnIn.Invoke(null, [0f, 6.2f, 3f]));
+Check("BRD CT return: no debuffs falls back to BossMod", 3f, ctReturnIn.Invoke(null, [0f, 0f, 3f]));
 Check("BRD CT Finale: BV ready means the normal burst", false, soloFinale.Invoke(null, [true, 9f, 3, false]));
 Check("BRD CT Finale: unknown downtime end", false, soloFinale.Invoke(null, [true, float.MaxValue, 3, true]));
 Check("BRD CT Finale: not outside FRU CT", false, soloFinale.Invoke(null, [false, 9f, 3, true]));

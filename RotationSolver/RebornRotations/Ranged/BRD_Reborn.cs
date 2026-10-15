@@ -338,7 +338,9 @@ public class BRD_Reborn : BardRotation
 	}
 
 	/// <summary>Finale's least lead on the CT return to be back (110s) for P5's burst, which comes ~102-108s after the return.</summary>
-	internal const float StandaloneFinaleLead = 8f;
+	// 7, not 8: the game refuses every action through the Return rewind (status 579) and allowed them again 7.3-9.4s before
+	// the return (2 pulls). P5's burst came 101.3-104.7s after the return, so a 7s Finale is back at most ~1.7s late for it.
+	internal const float StandaloneFinaleLead = 7f;
 
 	/// <summary>Finale's 20s buff should still cover most of the return: no earlier than this before it.</summary>
 	internal const float StandaloneFinaleLatest = 10f;
@@ -351,6 +353,14 @@ public class BRD_Reborn : BardRotation
 	// ponytail: the 8s lead assumes P5's burst ~102s+ after the CT return (Mana group 102s, Xw 108s); a faster P4 kill shrinks it.
 	internal static bool ShouldUseStandaloneFinale(bool fruCtDowntime, float downtimeLeft, int codas, bool battleVoiceCooling)
 		=> fruCtDowntime && downtimeLeft is >= StandaloneFinaleLead and <= StandaloneFinaleLatest && codas >= 2 && battleVoiceCooling;
+	/// <summary>
+	/// Seconds until the CT return, from our own debuffs (2 pulls): the bosses came back 19.1-19.3s after Return (7s) landed and
+	/// 3.1-3.2s after the Stun that follows it ended. BossMod's estimate ran ~5.5s early, which closed the Finale window before the
+	/// game allowed actions again.
+	/// </summary>
+	internal static float CtReturnIn(float returnLeft, float stunLeft, float bossModEstimate)
+		=> returnLeft > 0f ? returnLeft + 12.2f : stunLeft > 0f ? stunLeft + 3.15f : bossModEstimate;
+
 
 	private SongTrack GetNextSongTrack(SongTrack currentSong)
 	{
@@ -396,7 +406,8 @@ public class BRD_Reborn : BardRotation
 		// CT, not the P4 kill: both leave no hostiles, but in CT the pair vanished alive.
 		if (InCombat && IsBurst && ShouldUseStandaloneFinale(
 				DataCenter.IsInFRU && _lastTargetBaseId is 0x45A9 or 0x45AB && _lastTargetHp > 0.05f && DataCenter.AllHostileTargets.Count == 0,
-				BMRDowntimeEndIn, Coda.Count(s => s != Song.None), BattleVoicePvE.Cooldown.IsCoolingDown)
+				CtReturnIn(StatusHelper.PlayerStatusTime(false, StatusID.Return), StatusHelper.PlayerStatusTime(false, StatusID.Stun_4163), BMRDowntimeEndIn),
+				Coda.Count(s => s != Song.None), BattleVoicePvE.Cooldown.IsCoolingDown)
 			// No hostiles reads as 0s TTK, under Finale's 10s threshold: without the skip this never fired.
 			&& RadiantFinalePvE.CanUse(out act, skipTTKCheck: true))
 		{
