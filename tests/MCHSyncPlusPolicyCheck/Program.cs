@@ -545,6 +545,11 @@ Check("100 Battery burst reserve is not a minimum-gauge release", false,
 var holdReassemble = Method(policy, "ShouldHoldReassembleForBuffs");
 var spendReassembleInPartyBurst = Method(policy, "ShouldSpendReassembleInPartyBurst");
 var spendReassembleOnDrill = Method(burstActionPolicy, "ShouldSpendReassembleOnDrill");
+var lineHits = Method(burstActionPolicy, "LineHits");
+var origin = System.Numerics.Vector2.Zero;
+var aimAt = new System.Numerics.Vector2(0, 10);
+Check("Chain Saw line: stacked pair both hit", 2, lineHits.Invoke(null, [origin, aimAt, new[] { (aimAt, 1f), (new System.Numerics.Vector2(1.5f, 11), 1f) }])!);
+Check("Chain Saw line: enemy 6y off the line and one behind the player missed", 1, lineHits.Invoke(null, [origin, aimAt, new[] { (aimAt, 1f), (new System.Numerics.Vector2(6, 10), 1f), (new System.Numerics.Vector2(0, -5), 1f) }])!);
 // Reassemble is aligned to buffs the same way Wildfire and Queen are, but only when the hold is
 // free: never at max charges (that loses a charge outright), and never once buffs are already up.
 Check("a near buff window holds a spare Reassemble charge", true,
@@ -1161,10 +1166,13 @@ Check("BRD CT Finale: not outside FRU CT", false, soloFinale.Invoke(null, [false
 var brdType = assembly.GetType($"{ns}BRD_Reborn", true)!;
 var refreshPays = Method(brdType, "BurstEndRefreshPays");
 var dotRefreshed = Method(brdType, "DotRefreshed");
-Check("BRD IJ: same +30% snapshot, 25s left still pays (20s more buffed)", true, refreshPays.Invoke(null, [1.3f, 1.3f, 25f]));
-Check("BRD IJ: same +15% snapshot, 28s left does not", false, refreshPays.Invoke(null, [1.15f, 1.15f, 28f]));
-Check("BRD IJ: unbuffed DoTs into a +30% burst pay", true, refreshPays.Invoke(null, [1.3f, 1f, 28f]));
-Check("BRD IJ: weaker buffs than the DoT's at 30s left do not", false, refreshPays.Invoke(null, [1.1f, 1.4f, 30f]));
+Check("BRD IJ: same +30% snapshot, 25s left still pays (20s more buffed)", true, refreshPays.Invoke(null, [1.3f, 1.3f, 25f, float.NaN]));
+Check("BRD IJ: same +15% snapshot, 28s left does not", false, refreshPays.Invoke(null, [1.15f, 1.15f, 28f, float.NaN]));
+Check("BRD IJ: unbuffed DoTs into a +30% burst pay", true, refreshPays.Invoke(null, [1.3f, 1f, 28f, float.NaN]));
+Check("BRD IJ: weaker buffs than the DoT's at 30s left do not", false, refreshPays.Invoke(null, [1.1f, 1.4f, 30f, float.NaN]));
+Check("BRD IJ: weaker snapshot, 20s left, dies in 10s does not", false, refreshPays.Invoke(null, [1.3f, 1.4f, 20f, 10f]));
+Check("BRD IJ: unknown TTK keeps the 45s horizon", true, refreshPays.Invoke(null, [1.3f, 1.3f, 25f, float.NaN]));
+Check("BRD IJ: same +30% snapshot, 25s left, dies in 15s no longer pays", false, refreshPays.Invoke(null, [1.3f, 1.3f, 25f, 15f]));
 var finaleWeight = Method(brdType, "FinaleWeight");
 Check("BRD Finale weight: 1 Coda 2%", 0.02f, finaleWeight.Invoke(null, [1]));
 Check("BRD Finale weight: 2 Codas 4% (CT standalone)", 0.04f, finaleWeight.Invoke(null, [2]));

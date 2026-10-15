@@ -328,9 +328,14 @@ public class BRD_Reborn : BardRotation
 	/// The burst-end Iron Jaws re-applies both DoTs at the current multiplier for 45s. Gain: the remaining time at (now - old snapshot),
 	/// plus the rest of the 45s at (now - 1), which without it would tick after an unbuffed refresh. Cost: the clipped remaining time
 	/// brings the next Iron Jaws forward, ~IronJawsLoss * remain / 45. Unknown snapshot reads 1 (unbuffed).
+	/// Ticks after the target dies count for nothing: both spans stop at its TTK (NaN or 0 = unknown, the full 45s).
 	/// </summary>
-	internal static bool BurstEndRefreshPays(float now, float dotSnapshot, float remain)
-		=> DotPotencyPerSecond * (remain * (now - dotSnapshot) + (DotDuration - remain) * (now - 1f)) > IronJawsLoss * remain / DotDuration;
+	internal static bool BurstEndRefreshPays(float now, float dotSnapshot, float remain, float ttk = float.NaN)
+	{
+		var horizon = ttk > 0f ? Math.Min(ttk, DotDuration) : DotDuration;
+		var clipped = Math.Min(remain, horizon);
+		return DotPotencyPerSecond * (clipped * (now - dotSnapshot) + (horizon - clipped) * (now - 1f)) > IronJawsLoss * remain / DotDuration;
+	}
 
 	/// <summary>Finale's least lead on the CT return to be back (110s) for P5's burst, which comes ~102-108s after the return.</summary>
 	internal const float StandaloneFinaleLead = 8f;
@@ -739,7 +744,7 @@ public class BRD_Reborn : BardRotation
 
 		if (UptimeForDoT && IronJawsPvE.CanUse(out act, skipStatusProvideCheck: true) && (IronJawsPvE.Target.Target?.WillStatusEnd(30, true, IronJawsPvE.Setting.TargetStatusProvide ?? []) ?? false)
 			&& BurstEndRefreshPays(BuffSnapshotOn(IronJawsPvE.Target.Target), DotSnapshotOn(IronJawsPvE.Target.Target),
-				IronJawsPvE.Target.Target?.StatusTime(true, StatusID.Stormbite, StatusID.Windbite) ?? 0f))
+				IronJawsPvE.Target.Target?.StatusTime(true, StatusID.Stormbite, StatusID.Windbite) ?? 0f, IronJawsPvE.Target.Target?.GetTTK() ?? float.NaN))
 		{
 			if (StatusHelper.PlayerHasStatus(true, StatusID.BattleVoice, StatusID.RadiantFinale, StatusID.RagingStrikes) && StatusHelper.PlayerWillStatusEndGCD(1, 1, true, StatusID.BattleVoice, StatusID.RadiantFinale, StatusID.RagingStrikes))
 			{
@@ -904,7 +909,8 @@ public class BRD_Reborn : BardRotation
 			return false;
 		}
 
-		if (CurrentTarget?.WillStatusEndGCD(1, 1, true, StatusID.Windbite, StatusID.Stormbite, StatusID.VenomousBite, StatusID.CausticBite) ?? false)
+		// Only when the DoTs will be refreshed: before downtime they are skipped on purpose, and missing DoTs held capped Apex.
+		if (UptimeForDoT && (CurrentTarget?.WillStatusEndGCD(1, 1, true, StatusID.Windbite, StatusID.Stormbite, StatusID.VenomousBite, StatusID.CausticBite) ?? false))
 		{
 			return false;
 		}
