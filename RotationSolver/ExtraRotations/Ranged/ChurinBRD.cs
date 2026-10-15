@@ -486,6 +486,9 @@ public sealed class ChurinBRD : BardRotation
 
 			if (SoulVoice < 80) return false;
 
+			// Army's Paeon never spends gauge otherwise; at 100 every proc is wasted.
+			if (InArmys) return SoulVoice == 100 && !WouldUseIronJaws;
+
 			if (InWanderers)
 			{
 				return InBurst && (SoulVoice == 100 || BurstEndGCD(3));
@@ -621,7 +624,8 @@ public sealed class ChurinBRD : BardRotation
 
             if (!Is369)
             {
-	            return false;
+	            // Custom timing: no cycle-specific EA shaping, just never drift EA.
+	            return true;
             }
 
             if (InWanderers)
