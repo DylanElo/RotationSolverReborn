@@ -191,6 +191,15 @@ internal static class ActionTracer
 		return false;
 	}
 
+	/// <summary>Free-form diagnostic line, written only while verbose tracing (e.g. a rotation's own gate inputs).</summary>
+	internal static void Note(string text)
+	{
+		if (Enabled && Verbose)
+		{
+			Write($"NOTE   {text}");
+		}
+	}
+
 	internal static void Accept(IBaseAction a)
 	{
 		if (!Enabled)

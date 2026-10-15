@@ -406,9 +406,19 @@ public class BRD_Reborn : BardRotation
 		}
 
 		// CT, not the P4 kill: both leave no hostiles, but in CT the pair vanished alive.
-		if (InCombat && IsBurst && ShouldUseStandaloneFinale(
-				DataCenter.IsInFRU && _lastTargetBaseId is 0x45A9 or 0x45AB && _lastTargetHp > 0.05f && DataCenter.AllHostileTargets.Count == 0,
-				CtReturnIn(StatusHelper.PlayerStatusTime(false, StatusID.Return), StatusHelper.PlayerStatusTime(false, StatusID.Stun_4163), BMRDowntimeEndIn),
+		var ctDowntime = DataCenter.IsInFRU && _lastTargetBaseId is 0x45A9 or 0x45AB && _lastTargetHp > 0.05f && DataCenter.AllHostileTargets.Count == 0;
+		var returnLeft = StatusHelper.PlayerStatusTime(false, StatusID.Return);
+		var stunLeft = StatusHelper.PlayerStatusTime(false, StatusID.Stun_4163);
+		var ctReturnIn = CtReturnIn(returnLeft, stunLeft, BMRDowntimeEndIn);
+		if (ActionTracer.Enabled && ActionTracer.Verbose && DataCenter.IsInFRU && DataCenter.AllHostileTargets.Count == 0)
+		{
+			// ponytail: diagnostic for the CT Finale (10-15 21:49: the debuff timing fell back to BossMod); drop once it fires.
+			ActionTracer.Note($"CT ct={ctDowntime} last={_lastTargetBaseId:X} hp={_lastTargetHp:F2} return={returnLeft:F2} stun={stunLeft:F2} "
+				+ $"bmr={BMRDowntimeEndIn:F2} est={ctReturnIn:F2} codas={Coda.Count(s => s != Song.None)} bvCd={BattleVoicePvE.Cooldown.IsCoolingDown} "
+				+ $"statuses={string.Join(",", Player?.StatusList.Where(s => s.StatusId != 0).Select(s => $"{s.StatusId}:{s.RemainingTime:F1}") ?? [])}");
+		}
+
+		if (InCombat && IsBurst && ShouldUseStandaloneFinale(ctDowntime, ctReturnIn,
 				Coda.Count(s => s != Song.None), BattleVoicePvE.Cooldown.IsCoolingDown)
 			// No hostiles reads as 0s TTK, under Finale's 10s threshold: without the skip this never fired.
 			&& RadiantFinalePvE.CanUse(out act, skipTTKCheck: true))
