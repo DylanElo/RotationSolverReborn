@@ -1,5 +1,23 @@
 # MCH changelog (this fork)
 
+## 2026-10-15 — BRD/MCH Plan audit fixes
+
+- MCH Plan bursts on the planned window alone when there are no party buffs to wait for (no raid-buff job in the
+  party, or the Personal strategy). It waited for live raid buffs regardless, so such a party never got Wildfire
+  or Barrel Stabilizer under a plan. The Personal setting is honoured under a plan too.
+- MCH Plan slides a window up to 8s early only once the party's burst has started (two buff jobs, or half the
+  expected ones), as BRD Plan does. A lone early buff used to run out the partial-buff wait 2s before the planned
+  start and fire Wildfire ahead of the rest of the party; it now banks, and the wait counts from the planned start.
+- BRD outside FRU pots at the start of every burst the tincture is back for (0:00 / 6:00 / 12:00, as top logs).
+  It only ever potted on the countdown before. Tied to our own Battle Voice, and skipped when the tincture comes back
+  with under 15s of Raging Strikes left.
+- BRD Plan pots ahead of a potion window only if Battle Voice is back by the window (MCH Plan's Wildfire check).
+- BRD countdown potion respects Auto Burst.
+- BRD Plan aligns Minuet to the planned windows. On the fixed 43/43/34 cycle a window that drifts from 120s burst in
+  Ballad or Paeon, or at the tail of a Minuet (offline over the FRU plan: 135 of 160 burst seconds in Minuet). With
+  a window in sight the song before Minuet now runs to its last 2s, and Minuet starts once the window is within its
+  8s slide (159 of 160; better at +-15s and +-30s window jitter too). Windows out of reach keep the fixed cycle.
+
 ## 2026-10-12 — BRD songs ahead of damage oGCDs (v7.5.6.32)
 
 - Song switches run first in AttackAbility. RotationSolver checks AttackAbility before GeneralAbility, so songs lost

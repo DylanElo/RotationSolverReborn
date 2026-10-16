@@ -76,10 +76,17 @@ public sealed class MCH_Plan : MCH_SyncPlus
 	private MCHPlanWindow? CurrentWindow => Windows.OrderBy(w => w.StartIn).Cast<MCHPlanWindow?>().FirstOrDefault()
 		?? (_planSeen ? NextPhaseWindow : null);
 
+	private bool JustAfterWindow => DateTime.Now < _windowEnd.AddSeconds(LatePotionGrace);
+
+	/// <summary>Live raid buffs, or the window itself when there are none to wait for. See MCHPlanScheduler.BurstLive.</summary>
+	private bool BurstLive(MCHPlanWindow window)
+		=> MCHPlanScheduler.BurstLive(WaitsForPartyBuffs, PartyBurstActive, window.StartIn, JustAfterWindow);
+
 	private protected override MCHSyncPlusDecision? PlannedDecision()
 	{
 		if (CurrentWindow is not { } window) return null;
 		if (window.StartIn <= 0f) _windowEnd = DateTime.Now.AddSeconds(window.EndIn);
+		var waitsForParty = WaitsForPartyBuffs;
 		return MCHPlanScheduler.Evaluate(new MCHPlanSnapshot(
 			IsBurst,
 			ReserveBurst,
@@ -87,11 +94,12 @@ public sealed class MCH_Plan : MCH_SyncPlus
 			TimelineAvailable ? DowntimeIn : float.MaxValue,
 			WildfirePayloadWindow,
 			window.StartIn,
-			PartyBurstActive,
-			FullPartyBurstActive,
+			BurstLive(window),
+			!waitsForParty || FullPartyBurstActive,
 			SecondsInPartyBurst,
 			OverlapWait,
-			DateTime.Now < _windowEnd.AddSeconds(LatePotionGrace)));
+			JustAfterWindow,
+			!waitsForParty || SignificantPartyBurstActive));
 	}
 
 	/// <summary>
@@ -109,7 +117,8 @@ public sealed class MCH_Plan : MCH_SyncPlus
 			// ReserveBurst covers Auto Burst off and the dungeon reserve; a banked phase end pots in the next phase.
 			if (window is { } next && !ReserveBurst && !ObjectiveBanked && MCHPlanScheduler.PotsAhead(next.Potion, next.StartIn, WildfirePvE.Cooldown.WillHaveOneCharge(next.StartIn)))
 				return true;
-			return MCHPlanScheduler.PotionDue(window, PartyBurstActive, DateTime.Now < _potionWindowEnd.AddSeconds(LatePotionGrace)) is bool due
+			var burstLive = window is { } current ? BurstLive(current) : PartyBurstActive;
+			return MCHPlanScheduler.PotionDue(window, burstLive, DateTime.Now < _potionWindowEnd.AddSeconds(LatePotionGrace)) is bool due
 				? due && WildfirePvE.Cooldown.HasOneCharge && ShouldUseWildfire
 				: null;
 		}
@@ -137,7 +146,8 @@ internal readonly record struct MCHPlanSnapshot(
 	bool AllRaidBuffs = false,
 	float SecondsInBurst = 0f,
 	float OverlapWait = 0f,
-	bool JustAfterWindow = false);
+	bool JustAfterWindow = false,
+	bool PartyBurstStarted = true);
 
 /// <summary>The plan-driven burst decision, as one pure function over a snapshot.</summary>
 internal static class MCHPlanScheduler
@@ -150,6 +160,13 @@ internal static class MCHPlanScheduler
 	/// burst and is back that much sooner. FRU: the crystals pot has to be back for the P4 burst when Oracle appears.
 	/// </summary>
 	internal const float PotionLead = 10f;
+
+	/// <summary>
+	/// What confirms a window. With party sync, live raid buffs. Without any to wait for (no buff jobs in the party, or the
+	/// Personal strategy) the planned window is the burst by itself: waiting on buffs there never committed Wildfire or Barrel.
+	/// </summary>
+	internal static bool BurstLive(bool waitsForPartyBuffs, bool liveRaidBuffs, float windowStartIn, bool justAfterWindow)
+		=> waitsForPartyBuffs ? liveRaidBuffs : windowStartIn <= 0f || justAfterWindow;
 
 	internal static bool PotsAhead(bool potion, float startIn, bool wildfireBackInTime)
 		=> potion && startIn > 0f && startIn <= PotionLead && wildfireBackInTime;
@@ -181,13 +198,17 @@ internal static class MCHPlanScheduler
 		// unless downtime is too close to wait.
 		// Partial buffs ahead of the window (an early Divination in P4: Wildfire on 2/4 with the party's
 		// burst at 10:42) bank until the window opens, and the overlap wait counts from the opening, not the first buff.
+		// The window opens 8s early only once the party's burst has started (BRD Plan's rule): a lone early buff
+		// let the wait run out 2s before the planned start, and Wildfire went before the rest of the party.
 		if (s.LiveRaidBuffs)
 		{
-			var ahead = s.WindowStartIn > 0f && !s.JustAfterWindow;
-			var secondsIn = ahead ? Math.Min(s.SecondsInBurst, WindowSlide - s.WindowStartIn) : s.SecondsInBurst;
+			var opening = s.PartyBurstStarted ? WindowSlide : 0f;
+			// Negative until the window opens; the time left before it then counts as part of the wait.
+			var sinceOpening = opening - s.WindowStartIn;
+			var secondsIn = s.JustAfterWindow ? s.SecondsInBurst : Math.Min(s.SecondsInBurst, sinceOpening);
 			var remainingWait = Math.Max(0f, s.OverlapWait - secondsIn);
 			var noTimeToWait = s.DowntimeIn is >= 0f and < float.MaxValue && remainingWait + s.PayloadWindow > s.DowntimeIn;
-			if (ahead && s.WindowStartIn > WindowSlide && !s.AllRaidBuffs && !noTimeToWait)
+			if (!s.JustAfterWindow && sinceOpening < 0f && !s.AllRaidBuffs && !noTimeToWait)
 				return new(MCHSyncPlusBurstGate.Hold, MCHSyncPlusResourcePlan.Bank, $"raid buffs early; planned window in {s.WindowStartIn:F1}s");
 			return s.AllRaidBuffs || remainingWait <= 0f || noTimeToWait
 				? new(MCHSyncPlusBurstGate.Commit, MCHSyncPlusResourcePlan.Spend, "raid buffs are up")

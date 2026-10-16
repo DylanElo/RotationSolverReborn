@@ -119,6 +119,27 @@ public class BRD_Reborn : BardRotation
 	/// <summary>Seconds until the planned burst window; only meaningful while HoldBurst.</summary>
 	private protected virtual float PlannedBurstIn => 0f;
 
+	/// <summary>BRD Plan: seconds until the next planned window (negative while it is open); null with none in sight.</summary>
+	private protected virtual float? PlannedWindowIn => null;
+
+	/// <summary>Song time left at which a song held for Minuet still hands over without a gap.</summary>
+	internal const float SongLastMoment = 2f;
+
+	/// <summary>
+	/// Song time left at which the song before Minuet hands over to it. Minuet is the burst song, but on the fixed 43/43/34 cycle a
+	/// planned window that drifts from 120s lands in Ballad or Paeon, or at the tail of a Minuet that ends mid-burst (FRU plan
+	/// offline: 135 of 160 burst seconds in Minuet; 159 with this). With a window in sight Minuet starts once the window is within
+	/// its 8s slide, and until then the song before it runs to its last seconds (Paeon stretches from 34s up to 45s). A window
+	/// that a Minuet started at that song's end could not reach either keeps the fixed cycle: holding for it only shifted Minuet's
+	/// cooldown past the window after it.
+	/// </summary>
+	// ponytail: an offline song model (no downtime, no Coda grab); the 8s lead also won with windows jittered +-15/30s.
+	internal static float MinuetSwitchAt(float? windowIn, float normalSwitchAt, float songLeft, float minuetSpan)
+		=> windowIn is not float w ? normalSwitchAt
+			: w <= BRD_Plan.WindowSlide ? float.MaxValue
+			: w <= songLeft + minuetSpan ? Math.Min(normalSwitchAt, SongLastMoment)
+			: normalSwitchAt;
+
 	/// <summary>
 	/// A planned hold long enough that Sidewinder (60s recast) and refilled Soul Voice are back for the window,
 	/// even if party buffs pull it in by BRD Plan's 8s slide.
@@ -128,8 +149,24 @@ public class BRD_Reborn : BardRotation
 	/// <summary>BRD Plan: the potion goes ahead of the window, before Raging Strikes is due.</summary>
 	private protected virtual bool PotionBeforeBurst => false;
 
-	/// <summary>FRU potion burst due. BRD Plan reads it from the plan's potion windows instead of PotionTimes.</summary>
-	private protected virtual bool PotionNow => DataCenter.IsInFRU && PotionDue(CombatTime, PotionTimes);
+	/// <summary>
+	/// Potion burst due. FRU: the listed bursts (PotionTimes). Elsewhere every burst the tincture is back for, at its start,
+	/// as top logs do (0:00, 6:00, 12:00); this used to pot only on the countdown. BRD Plan reads its plan's potion windows.
+	/// </summary>
+	private protected virtual bool PotionNow => DataCenter.IsInFRU
+		? PotionDue(CombatTime, PotionTimes)
+		: PotionFitsBurst(HasBattleVoice || !BattleVoicePvE.EnoughLevel, StatusHelper.PlayerStatusTime(true, StatusID.RagingStrikes));
+
+	/// <summary>Raging Strikes time left under which a tincture back mid-burst waits for the next burst instead.</summary>
+	internal const float PotionLateLimit = 15f;
+
+	/// <summary>
+	/// Our burst is committed (Battle Voice out) and Raging Strikes is not yet up or has most of its 20s left. Tying it to Battle
+	/// Voice keeps a ready Raging Strikes in downtime from spending the tincture; the late limit stops a tincture that comes back
+	/// a few seconds into a drifted burst from covering only its tail and missing the next one.
+	/// </summary>
+	internal static bool PotionFitsBurst(bool burstCommitted, float ragingStrikesLeft)
+		=> burstCommitted && (ragingStrikesLeft <= 0f || ragingStrikesLeft >= PotionLateLimit);
 
 	#endregion
 
@@ -138,7 +175,7 @@ public class BRD_Reborn : BardRotation
 	protected override IAction? CountDownAction(float remainTime)
 	{
 		// tincture needs to be used on -0.7s exactly
-		if (!DataCenter.IsInFRU && remainTime <= 0.7f && UseBurstMedicine(out var act))
+		if (!DataCenter.IsInFRU && IsBurst && remainTime <= 0.7f && UseBurstMedicine(out var act))
 		{
 			return act;
 		}
@@ -348,12 +385,6 @@ public class BRD_Reborn : BardRotation
 	internal const float StandaloneFinaleLatest = 10f;
 
 	/// <summary>
-	/// FRU CT (P4 pair gone): a Finale without Battle Voice, then Encore on the return (top Bards: Xw 12:20, Aqualyy 12:22, ~13s
-	/// before it, back for P5 at 14:13/14:16). Only 8-10s before the return (back for P5, buff still up on return), at least 2 Codas,
-	/// and Battle Voice still cooling, so it is never the normal burst. CodaGrab rebuilds the Codas in the P4->P5 gap.
-	/// </summary>
-	// ponytail: the 8s lead assumes P5's burst ~102s+ after the CT return (Mana group 102s, Xw 108s); a faster P4 kill shrinks it.
-	/// <summary>
 	/// Seconds until the CT return, from our own debuffs (2 pulls): the bosses came back 19.1-19.3s after Return (7s) landed and
 	/// 3.1-3.2s after the Stun that follows it ended. BossMod's estimate ran ~5.5s early, which closed the Finale window before the
 	/// game allowed actions again.
@@ -361,6 +392,12 @@ public class BRD_Reborn : BardRotation
 	internal static float CtReturnIn(float returnLeft, float stunLeft, float bossModEstimate)
 		=> returnLeft > 0f ? returnLeft + 12.2f : stunLeft > 0f ? stunLeft + 3.15f : bossModEstimate;
 
+	/// <summary>
+	/// FRU CT (P4 pair gone): a Finale without Battle Voice, then Encore on the return (top Bards: Xw 12:20, Aqualyy 12:22, ~13s
+	/// before it, back for P5 at 14:13/14:16). Only 7-10s before the return (back for P5, buff still up on return), at least 2 Codas,
+	/// and Battle Voice still cooling, so it is never the normal burst. CodaGrab rebuilds the Codas in the P4->P5 gap.
+	/// </summary>
+	// ponytail: the 7s lead assumes P5's burst ~102s+ after the CT return (Mana group 102s, Xw 108s); a faster P4 kill shrinks it.
 	internal static bool ShouldUseStandaloneFinale(bool fruCtDowntime, float downtimeLeft, int codas, bool battleVoiceCooling)
 		=> fruCtDowntime && downtimeLeft is >= StandaloneFinaleLead and <= StandaloneFinaleLatest && codas >= 2 && battleVoiceCooling;
 
@@ -464,6 +501,10 @@ public class BRD_Reborn : BardRotation
 				SongTrack.ArmysPaeon => ARMYRemainTime,
 				_ => 0,
 			};
+			if (nextSong == Song.WanderersMinuet)
+			{
+				remainTime = MinuetSwitchAt(PlannedWindowIn, remainTime, SongTime, WANDTime);
+			}
 
 			var currentSongAction = currentSongTrack switch
 			{
