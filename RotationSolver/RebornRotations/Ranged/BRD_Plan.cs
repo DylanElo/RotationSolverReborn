@@ -101,6 +101,8 @@ public sealed class BRD_Plan : BRD_Reborn
 	// ponytail: assumes a hidden window is >=68s out; a fight with a short kill-gated gap needs a real lower bound here.
 	private protected override float PlannedBurstIn => CurrentWindow?.StartIn ?? (_planSeen ? 999f : 0f);
 
+	private protected override float? PlannedWindowIn => CurrentWindow?.StartIn;
+
 	private protected override bool PotionNow => InLateGrace ? _windowPotion
 		: CurrentWindow is { } w ? PotsAhead(w.Potion, w.StartIn, BattleVoicePvE.Cooldown.WillHaveOneCharge(w.StartIn))
 		: !_planSeen && base.PotionNow;

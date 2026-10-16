@@ -119,6 +119,27 @@ public class BRD_Reborn : BardRotation
 	/// <summary>Seconds until the planned burst window; only meaningful while HoldBurst.</summary>
 	private protected virtual float PlannedBurstIn => 0f;
 
+	/// <summary>BRD Plan: seconds until the next planned window (negative while it is open); null with none in sight.</summary>
+	private protected virtual float? PlannedWindowIn => null;
+
+	/// <summary>Song time left at which a song held for Minuet still hands over without a gap.</summary>
+	internal const float SongLastMoment = 2f;
+
+	/// <summary>
+	/// Song time left at which the song before Minuet hands over to it. Minuet is the burst song, but on the fixed 43/43/34 cycle a
+	/// planned window that drifts from 120s lands in Ballad or Paeon, or at the tail of a Minuet that ends mid-burst (FRU plan
+	/// offline: 135 of 160 burst seconds in Minuet; 159 with this). With a window in sight Minuet starts once the window is within
+	/// its 8s slide, and until then the song before it runs to its last seconds (Paeon stretches from 34s up to 45s). A window
+	/// that a Minuet started at that song's end could not reach either keeps the fixed cycle: holding for it only shifted Minuet's
+	/// cooldown past the window after it.
+	/// </summary>
+	// ponytail: an offline song model (no downtime, no Coda grab); the 8s lead also won with windows jittered +-15/30s.
+	internal static float MinuetSwitchAt(float? windowIn, float normalSwitchAt, float songLeft, float minuetSpan)
+		=> windowIn is not float w ? normalSwitchAt
+			: w <= BRD_Plan.WindowSlide ? float.MaxValue
+			: w <= songLeft + minuetSpan ? Math.Min(normalSwitchAt, SongLastMoment)
+			: normalSwitchAt;
+
 	/// <summary>
 	/// A planned hold long enough that Sidewinder (60s recast) and refilled Soul Voice are back for the window,
 	/// even if party buffs pull it in by BRD Plan's 8s slide.
@@ -480,6 +501,10 @@ public class BRD_Reborn : BardRotation
 				SongTrack.ArmysPaeon => ARMYRemainTime,
 				_ => 0,
 			};
+			if (nextSong == Song.WanderersMinuet)
+			{
+				remainTime = MinuetSwitchAt(PlannedWindowIn, remainTime, SongTime, WANDTime);
+			}
 
 			var currentSongAction = currentSongTrack switch
 			{

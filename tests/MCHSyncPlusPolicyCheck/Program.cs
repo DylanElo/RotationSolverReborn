@@ -1144,6 +1144,13 @@ Check("BRD Plan: potion window 12s out waits", false, brdPotsAhead.Invoke(null, 
 Check("BRD Plan: open potion window still pots", true, brdPotsAhead.Invoke(null, [true, -3f, false]));
 Check("BRD Plan: plain window never pots", false, brdPotsAhead.Invoke(null, [false, 5f, true]));
 Check("BRD Plan: no early pot if Battle Voice is not back for the window", false, brdPotsAhead.Invoke(null, [true, 8f, false]));
+var minuetAt = Method(assembly.GetType($"{ns}BRD_Reborn", true)!, "MinuetSwitchAt");
+Check("BRD songs: no plan window keeps Paeon's 11s switch", 11f, minuetAt.Invoke(null, [null, 11f, 20f, 43f]));
+Check("BRD songs: window 20s out holds Paeon to its last 2s", 2f, minuetAt.Invoke(null, [20f, 11f, 20f, 43f]));
+Check("BRD songs: window 8s out starts Minuet now", float.MaxValue, minuetAt.Invoke(null, [8f, 11f, 20f, 43f]));
+Check("BRD songs: open window starts Minuet now", float.MaxValue, minuetAt.Invoke(null, [-4f, 11f, 20f, 43f]));
+Check("BRD songs: window Minuet could still reach (60s out, Paeon 20s left) holds", 2f, minuetAt.Invoke(null, [60f, 11f, 20f, 43f]));
+Check("BRD songs: window out of Minuet's reach keeps the fixed cycle", 11f, minuetAt.Invoke(null, [99f, 11f, 20f, 43f]));
 var brdPotionFits = Method(assembly.GetType($"{ns}BRD_Reborn", true)!, "PotionFitsBurst");
 Check("BRD potion: Battle Voice out, Raging Strikes next", true, brdPotionFits.Invoke(null, [true, 0f]));
 Check("BRD potion: fresh Raging Strikes still pots", true, brdPotionFits.Invoke(null, [true, 18f]));

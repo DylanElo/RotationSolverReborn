@@ -13,6 +13,10 @@
   with under 15s of Raging Strikes left.
 - BRD Plan pots ahead of a potion window only if Battle Voice is back by the window (MCH Plan's Wildfire check).
 - BRD countdown potion respects Auto Burst.
+- BRD Plan aligns Minuet to the planned windows. On the fixed 43/43/34 cycle a window that drifts from 120s burst in
+  Ballad or Paeon, or at the tail of a Minuet (offline over the FRU plan: 135 of 160 burst seconds in Minuet). With
+  a window in sight the song before Minuet now runs to its last 2s, and Minuet starts once the window is within its
+  8s slide (159 of 160; better at +-15s and +-30s window jitter too). Windows out of reach keep the fixed cycle.
 
 ## 2026-10-12 — BRD songs ahead of damage oGCDs (v7.5.6.32)
 
