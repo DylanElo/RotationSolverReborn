@@ -153,10 +153,13 @@ def main():
     # not from the player's own Battle Voice, so the sim does not inherit the logged rotation's timing. Casts, not buffs on the
     # player: a player out of range (or dead) still has the window.
     raid = sorted(raid_casts)
-    clusters = []
+    groups = []
     for t in raid:
-        if not clusters or t - clusters[-1] > 30:
-            clusters.append(t)
+        if not groups or t - groups[-1][-1] > 30:
+            groups.append([])
+        groups[-1].append(t)
+    # A lone cast is one job's drifted buff (10-17: SCH's Chain Stratagem alone at the CT return), not the plan's burst.
+    clusters = [g[0] for g in groups if len(g) >= 2]
     pots = [c[0] for c in my_casts if "Gemdraught" in c[1] or "Tincture" in c[1]]
     windows = []
     for i, first in enumerate(clusters):

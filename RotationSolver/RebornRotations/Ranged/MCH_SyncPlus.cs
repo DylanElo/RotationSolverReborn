@@ -199,6 +199,7 @@ public class MCH_SyncPlus : MCH_Reborn
 	private readonly List<MCHSyncPlusWildfireUse> _wildfireUses = [];
 	private float _totalHeldSeconds;
 	private string _lastReportedReasonKey = string.Empty;
+	private string _lastTracedReasonKey = string.Empty;
 	private string _pendingWildfireReason = string.Empty;
 	private int _pendingWildfireActiveBuffs;
 	private int _pendingWildfireExpectedBuffs;
@@ -532,6 +533,13 @@ public class MCH_SyncPlus : MCH_Reborn
 			{
 				_lastReportedReasonKey = reasonKey;
 				Svc.Log.Info($"[MCH Sync] {now:F1}s {_decision.Wildfire}/{_decision.Resources}: {_decision.Reason} (buffs {_activePartyBuffs}/{_expectedPartyBuffsCount}, Heat {Heat}, Battery {Battery})");
+			}
+			// Countdowns ("window in 86s") are stripped so the line marks a change of state, not every second.
+			var tracedKey = $"{_decision.Wildfire}/{_decision.Resources}:{System.Text.RegularExpressions.Regex.Replace(_decision.Reason, @"[\d.]+", "#")}";
+			if (tracedKey != _lastTracedReasonKey && InCombat)
+			{
+				_lastTracedReasonKey = tracedKey;
+				ActionTracer.Note($"MCH {now:F1}s {_decision.Wildfire}/{_decision.Resources}: {_decision.Reason} (buffs {_activePartyBuffs}/{_expectedPartyBuffsCount}, Heat {Heat}, Battery {Battery})", always: true);
 			}
 
 			// After _decision is assigned, not inside UpdateBurstTracker: the gates this reads route
@@ -1187,6 +1195,7 @@ public class MCH_SyncPlus : MCH_Reborn
 			_pendingWildfireActiveBuffs = 0;
 			_pendingWildfireExpectedBuffs = 0;
 			_lastReportedReasonKey = string.Empty;
+			_lastTracedReasonKey = string.Empty;
 			_observedPartyBuffs.Clear();
 		}
 
