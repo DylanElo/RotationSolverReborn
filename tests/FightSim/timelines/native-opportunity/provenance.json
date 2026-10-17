@@ -1,0 +1,562 @@
+{
+  "formatVersion": 1,
+  "derivedOn": "2026-10-17",
+  "nativeReplay": "FuturesRewrittenUltimate_MCH100_Hy_Ya_2026_10_17_01_30_55.log",
+  "decodedNativeActorsSha256": "91660613e85aa419453c75c2a61e2b9cb9e732e9a6ac7b14b2900db38e46323b",
+  "timeBasis": "seconds relative to FFLogs fight start; native local wall-clock timestamps used without fitting replay damage",
+  "fixtures": [
+    {
+      "file": "fru-mch-AWXjPmH98Vqhzya4-7.json",
+      "report": "AWXjPmH98Vqhzya4",
+      "fight": 7,
+      "originalSha256": "4df41d598de6a09bfa94e6a9e6a26eeddb1e5f2666542e2dfddc64f437fc9736",
+      "sha256": "6699d45aa77b4c18c7eb3d5ab4c7e2fd491ac615acc1b7f0fac14f782a2d0e98",
+      "changedTopLevelFields": [
+        "actors",
+        "enemyCasts"
+      ],
+      "changedActors": [
+        {
+          "key": "466.1",
+          "baseId": "0x459B",
+          "added": false,
+          "changedFields": [
+            "hp",
+            "death",
+            "spans"
+          ],
+          "spans": [
+            [
+              0.803,
+              35.576
+            ],
+            [
+              80.75,
+              160.931288
+            ]
+          ]
+        },
+        {
+          "key": "478.1",
+          "baseId": "0x459F",
+          "added": false,
+          "changedFields": [
+            "presentFrom"
+          ],
+          "spans": [
+            [
+              164.975,
+              200.063
+            ],
+            [
+              237.037,
+              296.708
+            ],
+            [
+              325.66,
+              350.016
+            ]
+          ],
+          "presentFrom": 161.427295
+        },
+        {
+          "key": "485.1",
+          "baseId": "0x45A3",
+          "added": false,
+          "changedFields": [
+            "spans"
+          ],
+          "spans": [
+            [
+              372.353472,
+              393.749984
+            ]
+          ]
+        },
+        {
+          "key": "485.2",
+          "baseId": "0x45A3",
+          "added": true,
+          "changedFields": [
+            "key",
+            "baseId",
+            "name",
+            "hp",
+            "pos",
+            "death",
+            "taken",
+            "spans"
+          ],
+          "spans": [
+            [
+              372.381077,
+              391.509554
+            ]
+          ]
+        },
+        {
+          "key": "485.3",
+          "baseId": "0x45A3",
+          "added": true,
+          "changedFields": [
+            "key",
+            "baseId",
+            "name",
+            "hp",
+            "pos",
+            "death",
+            "taken",
+            "spans"
+          ],
+          "spans": [
+            [
+              372.353472,
+              391.509554
+            ]
+          ]
+        },
+        {
+          "key": "485.4",
+          "baseId": "0x45A3",
+          "added": false,
+          "changedFields": [
+            "spans"
+          ],
+          "spans": [
+            [
+              372.381077,
+              392.067421
+            ]
+          ]
+        }
+      ],
+      "nativeEvidence": {
+        "p1NativeHpZero": 160.931288,
+        "p1NativeObjectDestroy": 165.763732,
+        "p2PresentFrom": 161.427295,
+        "p2NativeFirstTargetable": 165.282464,
+        "absoluteZero": [
+          {
+            "start": 340.042,
+            "duration": 9.974,
+            "beginTimestamp": 51727626,
+            "finishTimestamp": 51737600
+          }
+        ]
+      },
+      "crystalAlignment": [
+        {
+          "actorKey": "485.3",
+          "nativeInstanceId": "400069C5",
+          "exactNonzeroHpMatchCount": 32,
+          "medianNativeMinusFflogsSeconds": 0.0979495,
+          "attackableSpan": [
+            372.353472,
+            391.509554
+          ]
+        },
+        {
+          "actorKey": "485.1",
+          "nativeInstanceId": "400069C4",
+          "exactNonzeroHpMatchCount": 34,
+          "medianNativeMinusFflogsSeconds": 0.0963965,
+          "attackableSpan": [
+            372.353472,
+            393.749984
+          ]
+        },
+        {
+          "actorKey": "485.2",
+          "nativeInstanceId": "400069C6",
+          "exactNonzeroHpMatchCount": 34,
+          "medianNativeMinusFflogsSeconds": 0.09310099999999999,
+          "attackableSpan": [
+            372.381077,
+            391.509554
+          ]
+        },
+        {
+          "actorKey": "485.4",
+          "nativeInstanceId": "400069C7",
+          "exactNonzeroHpMatchCount": 41,
+          "medianNativeMinusFflogsSeconds": 0.10092,
+          "attackableSpan": [
+            372.381077,
+            392.067421
+          ]
+        }
+      ]
+    },
+    {
+      "file": "fru-mch-AWXjPmH98Vqhzya4-8.json",
+      "report": "AWXjPmH98Vqhzya4",
+      "fight": 8,
+      "originalSha256": "8628afc21e72adb667b16c6018be03678e7d20df94d8189da4be2910a593d1c4",
+      "sha256": "2802744db64a0646b4d555735b6a25c37e79175f070d327135f8e3d323400a03",
+      "changedTopLevelFields": [
+        "actors",
+        "enemyCasts"
+      ],
+      "changedActors": [
+        {
+          "key": "466.1",
+          "baseId": "0x459B",
+          "added": false,
+          "changedFields": [
+            "hp",
+            "death",
+            "spans"
+          ],
+          "spans": [
+            [
+              0.803,
+              35.355
+            ],
+            [
+              80.551,
+              161.445064
+            ]
+          ]
+        },
+        {
+          "key": "478.1",
+          "baseId": "0x459F",
+          "added": false,
+          "changedFields": [
+            "presentFrom"
+          ],
+          "spans": [
+            [
+              165.604,
+              200.773
+            ],
+            [
+              237.723,
+              297.561
+            ],
+            [
+              326.554,
+              350.935
+            ]
+          ],
+          "presentFrom": 162.174292
+        },
+        {
+          "key": "485.1",
+          "baseId": "0x45A3",
+          "added": true,
+          "changedFields": [
+            "key",
+            "baseId",
+            "name",
+            "hp",
+            "pos",
+            "death",
+            "taken",
+            "spans"
+          ],
+          "spans": [
+            [
+              373.112172,
+              390.830941
+            ]
+          ]
+        },
+        {
+          "key": "485.2",
+          "baseId": "0x45A3",
+          "added": false,
+          "changedFields": [
+            "spans"
+          ],
+          "spans": [
+            [
+              373.091631,
+              394.537653
+            ]
+          ]
+        },
+        {
+          "key": "485.3",
+          "baseId": "0x45A3",
+          "added": false,
+          "changedFields": [
+            "spans"
+          ],
+          "spans": [
+            [
+              373.112172,
+              393.28319
+            ]
+          ]
+        },
+        {
+          "key": "485.4",
+          "baseId": "0x45A3",
+          "added": true,
+          "changedFields": [
+            "key",
+            "baseId",
+            "name",
+            "hp",
+            "pos",
+            "death",
+            "taken",
+            "spans"
+          ],
+          "spans": [
+            [
+              373.112172,
+              395.91654
+            ]
+          ]
+        }
+      ],
+      "nativeEvidence": {
+        "p1NativeHpZero": 161.445064,
+        "p1NativeObjectDestroy": 166.448437,
+        "p2PresentFrom": 162.174292,
+        "p2NativeFirstTargetable": 165.780267,
+        "absoluteZero": [
+          {
+            "start": 340.937,
+            "duration": 9.998,
+            "beginTimestamp": 52755559,
+            "finishTimestamp": 52765557
+          }
+        ]
+      },
+      "crystalAlignment": [
+        {
+          "actorKey": "485.2",
+          "nativeInstanceId": "40006C7A",
+          "exactNonzeroHpMatchCount": 31,
+          "medianNativeMinusFflogsSeconds": 0.057919,
+          "attackableSpan": [
+            373.091631,
+            394.537653
+          ]
+        },
+        {
+          "actorKey": "485.4",
+          "nativeInstanceId": "40006C7C",
+          "exactNonzeroHpMatchCount": 39,
+          "medianNativeMinusFflogsSeconds": 0.080559,
+          "attackableSpan": [
+            373.112172,
+            395.91654
+          ]
+        },
+        {
+          "actorKey": "485.1",
+          "nativeInstanceId": "40006C7B",
+          "exactNonzeroHpMatchCount": 30,
+          "medianNativeMinusFflogsSeconds": 0.08123849999999999,
+          "attackableSpan": [
+            373.112172,
+            390.830941
+          ]
+        },
+        {
+          "actorKey": "485.3",
+          "nativeInstanceId": "40006C7D",
+          "exactNonzeroHpMatchCount": 45,
+          "medianNativeMinusFflogsSeconds": 0.106756,
+          "attackableSpan": [
+            373.112172,
+            393.28319
+          ]
+        }
+      ]
+    },
+    {
+      "file": "fru-mch-AWXjPmH98Vqhzya4-10.json",
+      "report": "AWXjPmH98Vqhzya4",
+      "fight": 10,
+      "originalSha256": "90bab4241ca3514486bcef205ce841b8350520a091c0a27128b7d9e0f05da60c",
+      "sha256": "63d1caa1c83bb19d2c2f38c03e163f2aab0653b33aa28ba1f8091b7c06e9e4a7",
+      "changedTopLevelFields": [
+        "actors",
+        "enemyCasts"
+      ],
+      "changedActors": [
+        {
+          "key": "466.1",
+          "baseId": "0x459B",
+          "added": false,
+          "changedFields": [
+            "hp",
+            "death",
+            "spans"
+          ],
+          "spans": [
+            [
+              1.026,
+              35.596
+            ],
+            [
+              80.751,
+              160.759219
+            ]
+          ]
+        },
+        {
+          "key": "478.1",
+          "baseId": "0x459F",
+          "added": false,
+          "changedFields": [
+            "presentFrom"
+          ],
+          "spans": [
+            [
+              164.916,
+              199.953
+            ],
+            [
+              236.917,
+              296.856
+            ],
+            [
+              325.883,
+              350.254
+            ]
+          ],
+          "presentFrom": 161.378621
+        },
+        {
+          "key": "485.1",
+          "baseId": "0x45A3",
+          "added": true,
+          "changedFields": [
+            "key",
+            "baseId",
+            "name",
+            "hp",
+            "pos",
+            "death",
+            "taken",
+            "spans"
+          ],
+          "spans": [
+            [
+              372.386524,
+              391.57945
+            ]
+          ]
+        },
+        {
+          "key": "485.2",
+          "baseId": "0x45A3",
+          "added": true,
+          "changedFields": [
+            "key",
+            "baseId",
+            "name",
+            "hp",
+            "pos",
+            "death",
+            "taken",
+            "spans"
+          ],
+          "spans": [
+            [
+              372.371879,
+              394.196695
+            ]
+          ]
+        },
+        {
+          "key": "485.3",
+          "baseId": "0x45A3",
+          "added": false,
+          "changedFields": [
+            "spans"
+          ],
+          "spans": [
+            [
+              372.386524,
+              396.731061
+            ]
+          ]
+        },
+        {
+          "key": "485.4",
+          "baseId": "0x45A3",
+          "added": true,
+          "changedFields": [
+            "key",
+            "baseId",
+            "name",
+            "hp",
+            "pos",
+            "death",
+            "taken",
+            "spans"
+          ],
+          "spans": [
+            [
+              372.386524,
+              396.030663
+            ]
+          ]
+        }
+      ],
+      "nativeEvidence": {
+        "p1NativeHpZero": 160.759219,
+        "p1NativeObjectDestroy": 165.727335,
+        "p2PresentFrom": 161.378621,
+        "p2NativeFirstTargetable": 165.243738,
+        "absoluteZero": [
+          {
+            "start": 340.285,
+            "duration": 9.969,
+            "beginTimestamp": 54357851,
+            "finishTimestamp": 54367820
+          }
+        ]
+      },
+      "crystalAlignment": [
+        {
+          "actorKey": "485.2",
+          "nativeInstanceId": "40006DF7",
+          "exactNonzeroHpMatchCount": 34,
+          "medianNativeMinusFflogsSeconds": 0.0749975,
+          "attackableSpan": [
+            372.371879,
+            394.196695
+          ]
+        },
+        {
+          "actorKey": "485.3",
+          "nativeInstanceId": "40006DFA",
+          "exactNonzeroHpMatchCount": 46,
+          "medianNativeMinusFflogsSeconds": 0.06231350000000001,
+          "attackableSpan": [
+            372.386524,
+            396.731061
+          ]
+        },
+        {
+          "actorKey": "485.4",
+          "nativeInstanceId": "40006DF9",
+          "exactNonzeroHpMatchCount": 41,
+          "medianNativeMinusFflogsSeconds": 0.070242,
+          "attackableSpan": [
+            372.386524,
+            396.030663
+          ]
+        },
+        {
+          "actorKey": "485.1",
+          "nativeInstanceId": "40006DF8",
+          "exactNonzeroHpMatchCount": 31,
+          "medianNativeMinusFflogsSeconds": 0.060028,
+          "attackableSpan": [
+            372.386524,
+            391.57945
+          ]
+        }
+      ]
+    }
+  ]
+}

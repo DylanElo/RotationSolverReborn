@@ -564,6 +564,30 @@ internal static class DataCenter
 
 	public static bool InCombat { get; set; } = false;
 
+	internal static WeaveBudget Weaves { get; } = new();
+	internal static bool WeaveLimitReached => InCombat && Weaves.Exhausted;
+	internal static HashSet<uint> BMRReservedUtilityActions { get; } = [];
+	internal static bool BMRUtilityGcdHold { get; set; }
+	internal static bool BMRUtilityAbilityHold { get; set; }
+	private static int ReservedBmrUtilitySlots => BMRUtilityAbilityHold ? 2 : BMRReservedUtilityActions.Count;
+
+	internal static bool IsBlockedByWeaveLimit(IAction action)
+		=> InCombat && ((BMRUtilityGcdHold && !Weaves.Exhausted && action is IBaseAction held && held.Info.IsRealGCD)
+			|| Weaves.ShouldBlock(action is IBaseAction gcd && gcd.Info.IsRealGCD,
+			action is IBaseAction mudra && mudra.Setting.IsMudra,
+			ReservedBmrUtilitySlots, BMRReservedUtilityActions.Contains(action.AdjustedID)));
+
+	internal static bool TryUseWithinWeaveLimit(IAction action)
+		=> !IsBlockedByWeaveLimit(action) && Weaves.TryUse(InCombat, action is IBaseAction gcd && gcd.Info.IsRealGCD,
+			action is IBaseAction mudra && mudra.Setting.IsMudra, action.AdjustedID, action.Use,
+			ReservedBmrUtilitySlots, BMRReservedUtilityActions.Contains(action.AdjustedID), Environment.TickCount64 / 1000d);
+
+	internal static void RefreshWeaveBudget(bool hasGcd)
+	{
+		if (InCombat && (hasGcd || (AnimationLock <= 0 && Player.Object?.IsCasting != true)))
+			Weaves.RefreshIdleWindow(hasGcd, DefaultGCDTotal, Environment.TickCount64 / 1000d);
+	}
+
 	public static bool DrawingActions { get; set; } = false;
 
 	private static RandomDelay _notInCombatDelay = new(() => Service.Config.NotInCombatDelay);
@@ -1614,6 +1638,7 @@ internal static class DataCenter
 
 	internal static void ResetAllRecords()
 	{
+		Weaves.Reset();
 		LastAction = 0;
 		LastGCD = 0;
 		LastAbility = 0;
@@ -2977,6 +3002,9 @@ internal static class DataCenter
 	public static void ResetBmrPlanData()
 	{
 		BMRPlannedActions = [];
+		BMRReservedUtilityActions.Clear();
+		BMRUtilityGcdHold = false;
+		BMRUtilityAbilityHold = false;
 	}
 	#endregion
 }

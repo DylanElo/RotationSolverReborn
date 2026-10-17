@@ -1,0 +1,48 @@
+record BMRPlannedAction(string TrackName, string ModuleType, float ActivationIn, float WindowEndIn, string OptionName);
+static class BMRPlan_IPCSubscriber {
+ public static int PlanVersion; public static bool IsEnabled=true;
+ public static List<BMRPlannedAction> Entries=[];
+ public static List<BMRPlannedAction> GetUpcomingPlannedActions(float horizon)=>Entries.Where(e=>e.ActivationIn<=horizon).ToList();
+}
+static class DataCenter { public static bool IsInFRU; }
+static class Svc {public static Logger Log=new(); public class Logger {public void Info(string s) {}}}
+static class ActionTracer {public static void Note(string text, bool always=false) {}}
+class FakeCooldown {public bool HasOneCharge=true; public bool WillHaveOneCharge(float seconds)=>HasOneCharge;}
+class FakeAction {
+ public bool EnoughLevel=true, Available=true; public FakeCooldown Cooldown=new(); public FakeTarget? Target=new();
+ public bool CanUse(out object? act,bool skipTTKCheck=false){act=Available&&Cooldown.HasOneCharge&&Target!=null?this:null;return act!=null;}
+}
+class FakeTarget {public uint BaseId;}
+class MCH_SyncPlus {
+ public bool InCombat=true,IsBurst=true,ReserveBurst,ObjectiveBanked,PartyBurstActive,FullPartyBurstActive;
+ public float EncounterTime=60,DowntimeIn=float.MaxValue,SecondsInPartyBurst,OverlapWait=6;
+ public bool TimelineEnabled=true,BMRActive,HasPartyBurstSources=true,AutomaticDungeon,TargetDying,TargetEndsBeforeWildfirePayload;
+ public bool IsCurrentTargetBoss=true,WildfireTargetAllowed=true,_dungeonBossEncounter;
+ public bool PaddingFatebreaker;
+ public float BMRVulnerableIn=float.MaxValue,BMRVulnerableEndIn=float.MaxValue,WildfireHeldFor;
+ public float LookAheadSeconds=8,MaximumWildfireHoldSeconds=30;
+ public const float WildfirePayloadWindow=10,WildfireLateWeaveWindow=0.8f;
+ public List<int> Buffs=[1,2];
+ public MCHSyncPlusPlan SyncPlusBurstPlan=MCHSyncPlusPlan.TrustParty;
+ public FakeAction WildfirePvE=new(),FullMetalFieldPvE=new(),AutoCrossbowPvE=new(),SpreadShotPvE=new();
+ public FakeTarget? SchedulerTarget=new();
+ public bool CanLateWeave=true,HasHeatForHypercharge=true,WildfireResolvedTargetAllowed=true,ShouldRecoverLostFullMetalBurst;
+ public float WeaponRemain=0.5f;
+ public float GCDTime(int n)=>2.5f*n;
+ public bool DowntimeWithin(float seconds)=>TimelineEnabled&&BMRActive&&DowntimeIn>=0&&DowntimeIn<seconds;
+ public bool IsLastGCD(bool x,FakeAction a)=>true;
+ public bool ToolChargeSoon(out object? act){act=null;return true;}
+ public bool LogBurstReport;public int Heat=50,Battery=50;
+ float _decisionComputedAt=float.MinValue;bool _decisionComputedInCombat;
+ MCHSyncPlusDecision _decision=MCHSyncPlusDecision.Default;
+ string _pendingWildfireReason="",_lastReportedReasonKey="",_lastTracedReasonKey="";int _pendingWildfireActiveBuffs,_pendingWildfireExpectedBuffs,_activePartyBuffs,_expectedPartyBuffsCount;
+ void UpdateBurstTracker(){} void UpdateDungeonTracker(){} void LogRotationState(){}
+ private protected virtual MCHSyncPlusDecision? PlannedDecision()=>null;
+ private protected virtual bool? PlannedPotionNow=>null;
+ private protected virtual float? SecondsUntilExpectedPartyBurst=>null;
+ public MCHSyncPlusDecision Probe()=>Decision;
+ public bool BarrelAllowed()=>ShouldUseBarrelOnCooldown;
+ public bool CommitAllowed()=>ShouldCommitPersonalBurst;
+ public bool PotionAllowed()=>PlannedPotionNow==true;
+ // PRODUCTION MEMBERS
+}

@@ -31,6 +31,8 @@ public partial class CustomRotation
 
 			CountingOfLastUsing = CountingOfCombatTimeUsing = 0;
 			newAction = Invoke(out gcdAction);
+			if (newAction != null && DataCenter.IsBlockedByWeaveLimit(newAction))
+				newAction = gcdAction;
 			// Track when the next GCD action (IBaseAction) returned by Invoke changes.
 			try
 			{
@@ -231,6 +233,7 @@ public partial class CustomRotation
 
 			// Attempt to get the GCD action
 			gcdAction = GCD();
+			DataCenter.RefreshWeaveBudget(gcdAction != null);
 			IBaseAction.IgnoreClipping = false;
 
 			// If a GCD action is available, determine if it can be used or if an ability should be used instead

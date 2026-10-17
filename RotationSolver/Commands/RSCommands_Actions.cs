@@ -79,6 +79,13 @@ namespace RotationSolver.Commands
 				return;
 			}
 
+			DataCenter.RefreshWeaveBudget(ActionUpdater.NextGCDAction != null);
+
+			if (DataCenter.IsBlockedByWeaveLimit(nextAction))
+			{
+				return;
+			}
+
 			if (DataCenter.AnimationLock > 0f)
 			{
 				return;
@@ -135,7 +142,7 @@ namespace RotationSolver.Commands
 
 			CurrentAction = nextAction as IBaseAction;
 
-			if (nextAction.Use())
+			if (DataCenter.TryUseWithinWeaveLimit(nextAction))
 			{
 
 				_lastActionID = nextAction.AdjustedID;

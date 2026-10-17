@@ -1,0 +1,59 @@
+static class Scenarios {
+ static int passed,failed;
+ static void Check(string name,bool ok){Console.WriteLine((ok?"PASS ":"FAIL ")+name);if(ok)passed++;else failed++;}
+ static MCH_Plan New(bool personal=false,params BMRPlannedAction[] entries){
+  BMRPlan_IPCSubscriber.Entries=entries.ToList();BMRPlan_IPCSubscriber.PlanVersion++;
+  DataCenter.IsInFRU=false;
+  return new(){SyncPlusBurstPlan=personal?MCHSyncPlusPlan.Personal:MCHSyncPlusPlan.TrustParty};
+ }
+ static BMRPlannedAction Burst(float start=0)=>new("Burst","BossMod.Autorotation.ClassMCHUtility",start,start+20,"WindowWithPotion");
+ public static int Run(bool beforeFix){
+  // This reproduces the saved setting mismatch; --before-config-fix deliberately fails the intended contract.
+  var configured=New(personal:beforeFix);
+  Check("selected MCH Plan no authored plan withholds Wildfire without raid buffs",!configured.SelectWildfire(out _));
+  if(beforeFix){Console.WriteLine($"RESULT {passed} passed, {failed} failed; original saved Personal mode reproduced");return failed==0?0:1;}
+  var solo=New(true);Check("explicit Personal remains available to other rotations/users",solo.SelectWildfire(out var selected)&&selected==solo.WildfirePvE);
+  var absent=New();Check("no plan selects no Wildfire",!absent.SelectWildfire(out _));Check("no plan has no committed Barrel",!absent.CommitAllowed());
+  var mitigation=New(false,new BMRPlannedAction("Tactician","BossMod.Autorotation.ClassMCHUtility",0,20,"Use"));
+  Check("mitigation-only plan does not fabricate a burst window",!mitigation.SelectWildfire(out _));
+  mitigation.PartyBurstActive=mitigation.FullPartyBurstActive=true;mitigation.EncounterTime++;
+  var intended=mitigation.WildfirePvE.Target;
+  Check("mitigation-only fallback selects actual Wildfire on intended resolved target under full live buffs",mitigation.SelectWildfire(out selected)&&selected==mitigation.WildfirePvE&&ReferenceEquals(((FakeAction)selected).Target,intended));
+  var late=New();late.HasPartyBurstSources=false;
+  Check("unobserved buff sources beyond opener retain TrustParty hold",!late.SelectWildfire(out _));
+  var live=New();live.PartyBurstActive=live.FullPartyBurstActive=true;
+  Check("no plan full live buffs select Wildfire",live.SelectWildfire(out selected)&&selected==live.WildfirePvE);
+  var unavailable=New();unavailable.PartyBurstActive=unavailable.FullPartyBurstActive=true;unavailable.WildfirePvE.Available=false;
+  Check("scheduler commit cannot select unavailable native Wildfire",!unavailable.SelectWildfire(out _));
+  var missing=New();missing.PartyBurstActive=missing.FullPartyBurstActive=true;missing.WildfirePvE.Target=null;
+  Check("live buffs cannot select Wildfire without an available target",!missing.SelectWildfire(out _));
+  var dying=New();dying.PartyBurstActive=dying.FullPartyBurstActive=true;dying.TargetEndsBeforeWildfirePayload=true;
+  Check("live buffs cannot defeat actual target lifetime gate",!dying.SelectWildfire(out _));
+  var disallowed=New();disallowed.PartyBurstActive=disallowed.FullPartyBurstActive=true;disallowed.WildfireResolvedTargetAllowed=false;
+  Check("native resolved target restriction still rejects Wildfire",!disallowed.SelectWildfire(out _));
+  var downtime=New();downtime.PartyBurstActive=downtime.FullPartyBurstActive=true;downtime.BMRActive=true;downtime.DowntimeIn=5;
+  Check("imminent actual timeline downtime rejects Wildfire",!downtime.SelectWildfire(out _));
+  var padding=New(false,Burst());DataCenter.IsInFRU=true;padding.PartyBurstActive=padding.FullPartyBurstActive=true;padding.PaddingFatebreaker=true;
+  Check("FRU P1 padding still suppresses actual Wildfire selection with live buffs",!padding.SelectWildfire(out _));
+  foreach(var personal in new[]{false,true}){
+   var fru=New(personal,Burst());DataCenter.IsInFRU=true;
+   Check($"FRU authored open window still requires live buffs (Personal={personal})",!fru.SelectWildfire(out _));
+   fru.PartyBurstActive=fru.FullPartyBurstActive=true;fru.EncounterTime++;
+   Check($"FRU authored live window selects Wildfire (Personal={personal})",fru.SelectWildfire(out selected)&&selected==fru.WildfirePvE);
+   Check($"FRU authored potion remains armed (Personal={personal})",fru.PotionAllowed());
+  }
+  var objective=New(false,Burst());objective.PartyBurstActive=objective.FullPartyBurstActive=true;objective.ObjectiveBanked=true;
+  Check("secured FRU phase still banks despite live buffs",!objective.SelectWildfire(out _)&&objective.Probe().Resources==MCHSyncPlusResourcePlan.Bank);
+  var future=New(false,Burst(60));future.PartyBurstActive=true;future.FullPartyBurstActive=false;
+  Check("future authored FRU burst keeps early partial buffs held",!future.SelectWildfire(out _));
+  foreach(uint id in new uint[]{0x45A7,0x45A9,0x45AB}){
+   var phase=New(false,Burst(60));DataCenter.IsInFRU=true;phase.SchedulerTarget!.BaseId=id;
+   Check($"FRU phase {id:X} independent Barrel remains allowed without live buffs",phase.BarrelAllowed());
+   Check($"FRU phase {id:X} independent Barrel does not release Wildfire",!phase.SelectWildfire(out _));
+  }
+  Check("FRU CT downtime Barrel preserved at 15s return /112s next burst",MCHSyncPlusPolicy.ShouldUseDowntimeBarrel(15,112));
+  Check("FRU CT downtime Barrel retains near-next-burst guard",!MCHSyncPlusPolicy.ShouldUseDowntimeBarrel(15,60));
+  Console.WriteLine($"RESULT {passed} passed, {failed} failed; real Plan, decision dispatcher, Wildfire gate and selection branch; external IPC/action boundary simulated");
+  return failed==0?0:1;
+ }
+}

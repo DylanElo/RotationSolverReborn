@@ -154,6 +154,15 @@ public static class Watcher
 				return;
 			}
 
+			// Count confirmed player actions, including manual/BMR actions and items without an Action row.
+			if (set.Header.ActionType == ActionType.Item)
+				DataCenter.Weaves.Record(false, set.Header.ActionID % 1_000_000, set.Header.GlobalEffectCounter, set.Header.SourceSequence, Environment.TickCount64 / 1000d);
+			// No `== ActionType.Action` gate: with it, 2026-10-17 VPR pulls recorded no GCD (weave slots climbed 1..15, oGCDs starved),
+			// while set.Action, which AddActionRec below relies on, resolved fine.
+			else if (set.Action is { } weaveAction
+				&& weaveAction.GetActionCate() != ActionCate.Autoattack)
+				DataCenter.Weaves.Record(weaveAction.IsRealGCD(), set.Header.ActionID, set.Header.GlobalEffectCounter, set.Header.SourceSequence, Environment.TickCount64 / 1000d);
+
 			// Only process real actions/items. Mounts and other non-action types (e.g. ActionType.Mount)
 			// reuse the Action sheet's row IDs, which can collide with unrelated GCDs/abilities and
 			// corrupt LastAction/LastComboAction tracking if not filtered out here.

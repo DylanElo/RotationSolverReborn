@@ -1,4 +1,4 @@
-﻿using Dalamud.Hooking;
+using Dalamud.Hooking;
 using ECommons.DalamudServices;
 using ECommons.GameHelpers;
 using ECommons.Logging;
@@ -11,9 +11,12 @@ namespace RotationSolver.Updaters
 	{
 		// Action Manager Hook for intercepting user input
 		private static Hook<UseActionDelegate>? _useActionHook;
+		private static Hook<UseActionLocationDelegate>? _useActionLocationHook;
 
 		// Delegate for ActionManager UseAction
 		private unsafe delegate bool UseActionDelegate(ActionManager* actionManager, uint actionType, uint actionID, ulong targetObjectID, uint param, uint useType, int pvp, bool* isGroundTarget);
+		private unsafe delegate bool UseActionLocationDelegate(ActionManager* actionManager, uint actionType, uint actionID,
+			ulong targetObjectID, Vector3* location, uint param, byte a7);
 
 		private const ulong InvalidGameObjectId = 0xE0000000;
 
@@ -79,6 +82,8 @@ namespace RotationSolver.Updaters
 				var useActionAddress = ActionManager.Addresses.UseAction.Value;
 				_useActionHook = Svc.Hook.HookFromAddress<UseActionDelegate>(useActionAddress, UseActionDetour);
 				_useActionHook?.Enable();
+				_useActionLocationHook = Svc.Hook.HookFromAddress<UseActionLocationDelegate>(ActionManager.Addresses.UseActionLocation.Value, UseActionLocationDetour);
+				_useActionLocationHook.Enable();
 
 				PluginLog.Debug("[ActionQueueManager] Action interception hooks initialized");
 			}
@@ -95,6 +100,9 @@ namespace RotationSolver.Updaters
 				_useActionHook?.Disable();
 				_useActionHook?.Dispose();
 				_useActionHook = null;
+				_useActionLocationHook?.Disable();
+				_useActionLocationHook?.Dispose();
+				_useActionLocationHook = null;
 
 				PluginLog.Debug("[ActionQueueManager] Action interception hooks disposed");
 			}
@@ -119,13 +127,13 @@ namespace RotationSolver.Updaters
 						{
 							if (adjustedActionId == RSCommands.CurrentAction.AdjustedID)
 							{
-								return _useActionHook.Original(actionManager, actionType, actionID, targetObjectID, param, useType, pvp, isGroundTarget);
+								return UseOriginal(actionManager, actionType, actionID, targetObjectID, param, useType, pvp, isGroundTarget);
 							}
 						}
 
 						if (adjustedActionId == 7419 && _useActionHook?.Original != null)
 						{
-							return _useActionHook.Original(actionManager, actionType, actionID, targetObjectID, param, useType, pvp, isGroundTarget);
+							return UseOriginal(actionManager, actionType, actionID, targetObjectID, param, useType, pvp, isGroundTarget);
 						}
 
 						if (ShouldInterceptAction(adjustedActionId))
@@ -154,7 +162,7 @@ namespace RotationSolver.Updaters
 										//PluginLog.Debug($"[ActionQueueManager] Not intercepting: insufficient level for {matchingAction.Name}.");
 										if (Service.Config.InterceptPassing)
 										{
-											return _useActionHook.Original(actionManager, actionType, actionID, targetObjectID, param, useType, pvp, isGroundTarget);
+											return UseOriginal(actionManager, actionType, actionID, targetObjectID, param, useType, pvp, isGroundTarget);
 										}
 									}
 									else if (!CanInterceptAction(matchingAction))
@@ -162,7 +170,7 @@ namespace RotationSolver.Updaters
 										//PluginLog.Debug($"[ActionQueueManager] Not intercepting: cooldown/window check failed for {matchingAction.Name}.");
 										if (Service.Config.InterceptPassing)
 										{
-											return _useActionHook.Original(actionManager, actionType, actionID, targetObjectID, param, useType, pvp, isGroundTarget);
+											return UseOriginal(actionManager, actionType, actionID, targetObjectID, param, useType, pvp, isGroundTarget);
 										}
 									}
 									else if (matchingAction is IBaseAction baseMovAction && baseMovAction.Setting.SpecialType == SpecialActionType.ObjectBasedMovement && Service.Config.BmrSafetyCheckIntercept)
@@ -206,7 +214,7 @@ namespace RotationSolver.Updaters
 										HandleInterceptedAction(matchingAction, actionID, macroTarget);
 										if (Service.Config.InterceptPassing)
 										{
-											return _useActionHook.Original(actionManager, actionType, actionID, targetObjectID, param, useType, pvp, isGroundTarget);
+											return UseOriginal(actionManager, actionType, actionID, targetObjectID, param, useType, pvp, isGroundTarget);
 										}
 										return false;
 									}
@@ -216,7 +224,7 @@ namespace RotationSolver.Updaters
 									//PluginLog.Debug($"[ActionQueueManager] Not intercepting: {matchingAction.Name} is not marked for interception.");
 									if (_useActionHook?.Original != null)
 									{
-										return _useActionHook.Original(actionManager, actionType, actionID, targetObjectID, param, useType, pvp, isGroundTarget);
+										return UseOriginal(actionManager, actionType, actionID, targetObjectID, param, useType, pvp, isGroundTarget);
 									}
 								}
 							}
@@ -232,11 +240,51 @@ namespace RotationSolver.Updaters
 			// Call original function if available, otherwise return true (allow action)
 			if (_useActionHook?.Original != null)
 			{
-				return _useActionHook.Original(actionManager, actionType, actionID, targetObjectID, param, useType, pvp, isGroundTarget);
+				return UseOriginal(actionManager, actionType, actionID, targetObjectID, param, useType, pvp, isGroundTarget);
 			}
 
 			// Return true to allow the action to proceed if hook is unavailable
 			return true;
+		}
+
+		private static unsafe bool UseOriginal(ActionManager* actionManager, uint actionType, uint actionID,
+			ulong targetObjectID, uint param, uint useType, int pvp, bool* isGroundTarget)
+		{
+			var before = actionManager->LastUsedActionSequence;
+			var used = _useActionHook!.Original(actionManager, actionType, actionID, targetObjectID, param, useType, pvp, isGroundTarget);
+			ObserveAccepted(actionManager, actionType, actionID, before, used);
+			return used;
+		}
+
+		private static unsafe bool UseActionLocationDetour(ActionManager* actionManager, uint actionType, uint actionID,
+			ulong targetObjectID, Vector3* location, uint param, byte a7)
+		{
+			var before = actionManager->LastUsedActionSequence;
+			var used = _useActionLocationHook!.Original(actionManager, actionType, actionID, targetObjectID, location, param, a7);
+			ObserveAccepted(actionManager, actionType, actionID, before, used);
+			return used;
+		}
+
+		private static unsafe void ObserveAccepted(ActionManager* actionManager, uint actionType, uint actionID, ushort before, bool used)
+		{
+			var sequence = actionManager->LastUsedActionSequence;
+			if (!used || !DataCenter.InCombat || before == sequence) return;
+			try
+			{
+				uint id;
+				if (actionType == (uint)ActionType.Item) id = actionID % 1_000_000;
+				else if (actionType == (uint)ActionType.Action)
+				{
+					id = Service.GetAdjustedActionId(actionID);
+					var action = Svc.Data.GetExcelSheet<Lumina.Excel.Sheets.Action>()?.GetRow(id);
+					if (action == null || action.Value.IsRealGCD() || action.Value.GetActionCate() == ActionCate.Autoattack)
+						return;
+				}
+				else return;
+				if (DataCenter.Weaves.RecordRequest(id, sequence, Environment.TickCount64 / 1000d))
+					ActionTracer.ActionRequested(id, sequence, DataCenter.Weaves.IsRsrRequest, DataCenter.Weaves.Used);
+			}
+			catch (Exception ex) { PluginLog.Warning($"[WeaveBudget] Failed to observe accepted request: {ex.Message}"); }
 		}
 
 		private static bool ShouldInterceptAction(uint actionId)

@@ -339,20 +339,16 @@ public class BRD_Reborn : BardRotation
 		return DotPotencyPerSecond * (clipped * (now - dotSnapshot) + (horizon - clipped) * (now - 1f)) > cost;
 	}
 
-	/// <summary>Finale's least lead on the CT return to be back (110s) for P5's burst, which comes ~102-108s after the return.</summary>
-	// 7, not 8: the game refuses every action through the Return rewind (status 579) and allowed them again 7.3-9.4s before
-	// the return (2 pulls). P5's burst came 101.3-104.7s after the return, so a 7s Finale is back at most ~1.7s late for it.
-	internal const float StandaloneFinaleLead = 7f;
+	/// <summary>Cast before Return becomes Stun; the old 7-10s interval was entirely inside the lockout.</summary>
+	internal const float StandaloneFinaleLead = 12.2f;
 
 	/// <summary>Finale's 20s buff should still cover most of the return: no earlier than this before it.</summary>
-	internal const float StandaloneFinaleLatest = 10f;
+	internal const float StandaloneFinaleLatest = 15f;
 
 	/// <summary>
 	/// FRU CT (P4 pair gone): a Finale without Battle Voice, then Encore on the return (top Bards: Xw 12:20, Aqualyy 12:22, ~13s
-	/// before it, back for P5 at 14:13/14:16). Only 8-10s before the return (back for P5, buff still up on return), at least 2 Codas,
-	/// and Battle Voice still cooling, so it is never the normal burst. CodaGrab rebuilds the Codas in the P4->P5 gap.
+	/// before it, back for P5 at 14:13/14:16). Reserve Paeon before CT so its Coda can be rebuilt after Finale, before the P5 lockout.
 	/// </summary>
-	// ponytail: the 8s lead assumes P5's burst ~102s+ after the CT return (Mana group 102s, Xw 108s); a faster P4 kill shrinks it.
 	/// <summary>
 	/// Seconds until the CT return, from our own debuffs (2 pulls): the bosses came back 19.1-19.3s after Return (7s) landed and
 	/// 3.1-3.2s after the Stun that follows it ended. BossMod's estimate ran ~5.5s early, which closed the Finale window before the
@@ -385,20 +381,72 @@ public class BRD_Reborn : BardRotation
 		};
 	}
 
+	private bool _ctFinaleSelected;
+	private bool _ctFinaleConfirmed;
+	private bool _ctRecoveryPpDrained;
+	private bool _p5MinuetReserved;
+	private float _ctMinuetNotBefore;
+	private bool DefaultCtSongOrder => FirstSong == SongTrack.WanderersMinuet
+		&& SecondSong == SongTrack.MagesBallad && ThirdSong == SongTrack.ArmysPaeon;
+	private bool AliveP4Pair => DataCenter.IsInFRU
+		&& (CurrentTarget is { BaseId: 0x45A9 or 0x45AB } pair ? pair.GetHealthRatio() > 0.05f
+			: CurrentTarget == null && _lastTargetBaseId is 0x45A9 or 0x45AB && _lastTargetHp > 0.05f);
+	private bool WaitForP5Minuet => _p5MinuetReserved && DefaultCtSongOrder && DataCenter.IsInFRU
+		&& (CombatTime < _ctMinuetNotBefore || (DataCenter.AllHostileTargets.Count == 0 && BMRDowntimeEndIn is > 0f and < float.MaxValue));
+	private bool ReserveCtPaeon => !_ctFinaleSelected && !_p5MinuetReserved && ShouldReserveCtPaeon(IsBurst && RadiantFinalePvE.EnoughLevel && RadiantFinalePvE.Config.IsEnabled,
+		DefaultCtSongOrder, AliveP4Pair, DataCenter.AllHostileTargets.Count == 0,
+		BMRDowntimeIn, BMRDowntimeEndIn, RadiantFinalePvE.Cooldown.RecastTimeRemain, HasRadiantFinale)
+		&& TheWanderersMinuetPvE.Cooldown.RecastTimeRemain <= BMRDowntimeEndIn;
+
+	internal static bool ShouldReserveCtPaeon(bool enabled, bool defaultOrder, bool alivePair, bool noHostiles,
+		float downtimeIn, float downtimeEndIn, float finaleRecast, bool finaleActive)
+		=> enabled && defaultOrder && alivePair && !finaleActive
+			// CT lasts under a minute; the longer P5 transition must release Paeon even with stale cached pair HP.
+			&& (downtimeIn is >= 0f and <= 20f || noHostiles) && downtimeEndIn is > 0f and < float.MaxValue
+			&& (!noHostiles || downtimeEndIn < 60f)
+			&& finaleRecast <= downtimeEndIn;
+
+	internal static bool CanRecoverCtPaeon(float recast, float returnIn)
+		=> returnIn is > 0f and < float.MaxValue && recast <= returnIn;
+
+	internal static float CodaSuccessorStart(float minuetRecast, float downtimeLeft, bool waitForUptime)
+	{
+		if (!waitForUptime || downtimeLeft is not (> 0f and < float.MaxValue)) return minuetRecast;
+		var start = Math.Max(minuetRecast, downtimeLeft);
+		// Waiting at most one GCD for Minuet lets Ballad's full 120s recast finish after its 45s song.
+		return start is >= 72.5f and < 75f ? 75f : start;
+	}
+
+	private bool ReserveCtCodaWeave => _ctFinaleConfirmed && DefaultCtSongOrder && AliveP4Pair
+		&& Array.IndexOf(Coda, Song.MagesBallad) < 0
+		&& MagesBalladPvE.Cooldown.RecastTimeRemain > 0f
+		&& MagesBalladPvE.Cooldown.RecastTimeRemain <= GCDTime(2);
 	private bool TrySongTrackAction(SongTrack track, out IAction? act)
 	{
 		act = null;
 		return track switch
 		{
-			SongTrack.WanderersMinuet => TheWanderersMinuetPvE.CanUse(out act),
+			SongTrack.WanderersMinuet => !WaitForP5Minuet && TheWanderersMinuetPvE.CanUse(out act),
 			SongTrack.MagesBallad => MagesBalladPvE.CanUse(out act),
-			SongTrack.ArmysPaeon => ArmysPaeonPvE.CanUse(out act),
+			SongTrack.ArmysPaeon => !ReserveCtPaeon && ArmysPaeonPvE.CanUse(out act),
 			_ => false,
 		};
 	}
 
+	private void UpdateCtRecovery()
+	{
+		if (!InCombat || HasBattleVoice)
+		{
+			_ctFinaleSelected = _ctFinaleConfirmed = _ctRecoveryPpDrained = _p5MinuetReserved = false;
+			_ctMinuetNotBefore = 0f;
+		}
+		if (_ctFinaleSelected && HasRadiantFinale && !HasBattleVoice) _ctFinaleConfirmed = true;
+		if (_ctFinaleConfirmed && IsLastAbility(ActionID.PitchPerfectPvE)) _ctRecoveryPpDrained = true;
+	}
+
 	protected override bool GeneralAbility(IAction nextGCD, out IAction? act)
 	{
+		UpdateCtRecovery();
 		if (CurrentTarget is { } target)
 		{
 			_lastTargetBaseId = target.BaseId;
@@ -421,8 +469,12 @@ public class BRD_Reborn : BardRotation
 		if (InCombat && IsBurst && ShouldUseStandaloneFinale(ctDowntime, ctReturnIn,
 				Coda.Count(s => s != Song.None), BattleVoicePvE.Cooldown.IsCoolingDown)
 			// No hostiles reads as 0s TTK, under Finale's 10s threshold: without the skip this never fired.
+			&& DefaultCtSongOrder && Song == Song.WanderersMinuet
+			&& CanRecoverCtPaeon(ArmysPaeonPvE.Cooldown.RecastTimeRemain, ctReturnIn)
 			&& RadiantFinalePvE.CanUse(out act, skipTTKCheck: true))
 		{
+			_ctFinaleSelected = true;
+			_ctRecoveryPpDrained = false;
 			return true;
 		}
 
@@ -442,10 +494,14 @@ public class BRD_Reborn : BardRotation
 	private bool SongAbility(out IAction? act)
 	{
 		act = null;
+		// Attack selection also reaches this path: confirmation must not wait for GeneralAbility to win a weave.
+		UpdateCtRecovery();
 		if (CodaGrab(out act))
 		{
 			return true;
 		}
+		// Rebuilding is allowed here; a filler song must not replace the Minuet reserved for Pandora.
+		if (WaitForP5Minuet) return false;
 
 		// Leaving Minuet discards Repertoire: drain a usable PP first. An unusable PP never delays the song.
 		if (Song == Song.WanderersMinuet && Repertoire > 0 && SongEndAfter(WANDRemainTime)
@@ -580,17 +636,34 @@ public class BRD_Reborn : BardRotation
 	private bool CodaGrab(out IAction? act)
 	{
 		act = null;
-		// No hostiles at all, not just out of range: a knockback out of 25y must not swap songs mid-uptime.
-		if (!RadiantFinalePvE.EnoughLevel || DataCenter.AllHostileTargets.Count > 0) return false;
+		// Only a confirmed standalone CT Finale permits rebuilding Codas while the pair is targetable.
+		var coda = Coda;
+		// Rebuild both Codas even after Finale expires or Minuet is a few seconds late for the P5 return.
+		var ctPending = _ctFinaleConfirmed && DefaultCtSongOrder && !HasBattleVoice
+			&& (Array.IndexOf(coda, Song.ArmysPaeon) < 0 || Array.IndexOf(coda, Song.MagesBallad) < 0);
+		var ctRecovery = ctPending && AliveP4Pair;
+		if (!RadiantFinalePvE.EnoughLevel || (DataCenter.AllHostileTargets.Count > 0 && !ctRecovery)) return false;
 		var downtimeLeft = BMRDowntimeEndIn;
-		if (!ShouldGrabCodas(downtimeLeft, TheWanderersMinuetPvE.Cooldown.IsCoolingDown ? TheWanderersMinuetPvE.Cooldown.RecastTimeRemain : 0f))
+		// CT is shorter than 60s; latch P5's ~77s transition even if cached pair HP is stale or CT Finale was skipped.
+		if (_lastTargetBaseId is 0x45A9 or 0x45AB && downtimeLeft is > 60f and < float.MaxValue)
+			_p5MinuetReserved = true;
+		if (!ctPending && !ShouldGrabCodas(downtimeLeft, TheWanderersMinuetPvE.Cooldown.IsCoolingDown ? TheWanderersMinuetPvE.Cooldown.RecastTimeRemain : 0f))
 		{
 			return false;
 		}
-		var coda = Coda;
+		if (ctRecovery && !_ctRecoveryPpDrained && Song == Song.WanderersMinuet && Repertoire > 0
+			&& PitchPerfectPvE.CanUse(out act, skipAoeCheck: true, skipComboCheck: true)) return true;
 		var minuetRecast = TheWanderersMinuetPvE.Cooldown.IsCoolingDown ? TheWanderersMinuetPvE.Cooldown.RecastTimeRemain : 0f;
-		return (Array.IndexOf(coda, Song.MagesBallad) < 0 && SuccessorBackInTime(minuetRecast, 1) && MagesBalladPvE.CanUse(out act))
-			|| (Array.IndexOf(coda, Song.ArmysPaeon) < 0 && SuccessorBackInTime(minuetRecast, 2) && ArmysPaeonPvE.CanUse(out act));
+		var waitForUptime = WaitForP5Minuet;
+		var successorStart = CodaSuccessorStart(minuetRecast, downtimeLeft, waitForUptime);
+		if (Array.IndexOf(coda, Song.MagesBallad) < 0 && SuccessorBackInTime(successorStart, 1) && MagesBalladPvE.CanUse(out act))
+		{
+			if (waitForUptime && successorStart > Math.Max(minuetRecast, downtimeLeft))
+				_ctMinuetNotBefore = CombatTime + successorStart;
+			return true;
+		}
+		return !ReserveCtPaeon && Array.IndexOf(coda, Song.ArmysPaeon) < 0
+			&& SuccessorBackInTime(successorStart, 2) && ArmysPaeonPvE.CanUse(out act);
 	}
 
 	internal static bool ShouldGrabCodas(float downtimeLeft, float minuetRecast)
@@ -656,6 +729,14 @@ public class BRD_Reborn : BardRotation
 			}
 		}
 
+		// Reserve an imminent Coda rebuild or Minuet handoff. The shared budget refreshes during long CT downtime;
+		// a Minuet still far from ready does not need to suppress the final damage weaves before CT.
+		if (ReserveCtCodaWeave || (ReserveCtPaeon && BMRDowntimeIn >= 0f && BMRDowntimeIn <= GCDTime(2)
+			&& TheWanderersMinuetPvE.Cooldown.RecastTimeRemain <= GCDTime(2)))
+		{
+			act = null;
+			return false;
+		}
 		// Capped Repertoire goes before the buff wait: a song tick during the wait is lost.
 		if (Repertoire == 3 && PitchPerfectPvE.CanUse(out act, skipAoeCheck: true, skipComboCheck: true))
 		{

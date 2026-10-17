@@ -210,6 +210,11 @@ internal static class ActionTracer
 		Write($"ACCEPT {Format(a)}");
 	}
 
+	internal static void ActionRequested(uint actionId, ushort sequence, bool rsr, int slots)
+	{
+		if (Enabled) Write($"REQUEST {(rsr ? "RSR" : "external")} action={actionId} sequence={sequence} slots={slots}");
+	}
+
 	private static string Format(IAction? a) => a == null ? "<null>" : $"{a.Name}({a.ID})";
 
 	private static void Write(string body)

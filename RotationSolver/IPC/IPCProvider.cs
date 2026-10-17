@@ -22,15 +22,17 @@ namespace RotationSolver.IPC
 		[EzIPC]
 		public int PlannedMchUtilityWeave(uint actionId, float animationLock, float deadline)
 		{
+			DataCenter.RefreshWeaveBudget(ActionUpdater.NextGCDAction != null);
 			var protectedHandoff = ActionUpdater.NextAction?.AdjustedID is (uint)ActionID.WildfirePvE or (uint)ActionID.HyperchargePvE
 				|| DataCenter.LastAction == ActionID.WildfirePvE;
-			return Updaters.PlannedMchUtilityWeave.Decide(
+			var decision = Updaters.PlannedMchUtilityWeave.Decide(
 				Service.Config.UseBmrPlan && DataCenter.State && !DataCenter.IsTargetOnly
-					&& !Service.Config.TeachingMode && DataCenter.Job == ECommons.ExcelServices.Job.MCH
+					&& !Service.Config.TeachingMode
 					&& ECommons.GameHelpers.Player.Object?.CurrentHp > 0 && !DataCenter.IsPvP,
-				actionId is (uint)ActionID.TacticianPvE or (uint)ActionID.DismantlePvE,
+				Updaters.PlannedMchUtilityWeave.IsSupportedUtility(DataCenter.Job, actionId),
 				DataCenter.AnimationLock, animationLock, deadline, DataCenter.DefaultGCDRemain,
 				DataCenter.CalculatedActionAhead, ActionUpdater.NextGCDAction != null, protectedHandoff);
+			return decision >= 2 && DataCenter.WeaveLimitReached ? 1 : decision;
 		}
 
 		/// <summary>

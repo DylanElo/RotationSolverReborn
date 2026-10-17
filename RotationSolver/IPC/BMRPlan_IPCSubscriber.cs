@@ -36,6 +36,15 @@ internal static class BMRPlan_IPCSubscriber
 		}
 	}
 
+	internal static bool HasNativeBrdWeaveOwner
+	{
+		get
+		{
+			try { return Updaters.PlannedMchUtilityWeave.HasNativeBrdOwner(IsEnabled, MchWeaveHandoffVersion?.Invoke() ?? 0); }
+			catch { return false; }
+		}
+	}
+
 	private static ICallGateSubscriber<object>? _actionsChangedSubscriber;
 	private static Action? _actionsChangedCallback;
 

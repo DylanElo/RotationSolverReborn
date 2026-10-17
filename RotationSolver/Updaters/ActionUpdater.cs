@@ -156,6 +156,7 @@ internal static class ActionUpdater
 		else if (lastInCombat && !DataCenter.InCombat)
 		{
 			_startCombatTime = DateTime.MinValue;
+			DataCenter.Weaves.Reset();
 
 			if (DataCenter.AutoOffAfterCombatEnabled && !DataCenter.IsHenched && !DataCenter.IsAutoDuty)
 			{

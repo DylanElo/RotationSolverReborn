@@ -61,6 +61,9 @@ internal static class BMRPlanUpdater
 		{
 			_subscribed = false;
 			_queuedActionIds.Clear();
+			DataCenter.BMRReservedUtilityActions.Clear();
+			DataCenter.BMRUtilityGcdHold = false;
+			DataCenter.BMRUtilityAbilityHold = false;
 		}
 	}
 
@@ -74,6 +77,9 @@ internal static class BMRPlanUpdater
 	{
 		if (!Service.Config.UseBmrPlan)
 		{
+			DataCenter.BMRReservedUtilityActions.Clear();
+			DataCenter.BMRUtilityGcdHold = false;
+			DataCenter.BMRUtilityAbilityHold = false;
 			if (DataCenter.BMRPlannedActions.Count > 0)
 			{
 				DataCenter.ResetBmrPlanData();
@@ -95,7 +101,9 @@ internal static class BMRPlanUpdater
 		}
 
 		var now = DateTime.Now;
-		if (_dirty || now - _lastPoll >= FallbackPollInterval)
+		var pollInterval = DataCenter.InCombat && DataCenter.Job == ECommons.ExcelServices.Job.BRD
+			? TimeSpan.FromSeconds(.25) : FallbackPollInterval;
+		if (_dirty || now - _lastPoll >= pollInterval)
 		{
 			try
 			{
@@ -123,6 +131,34 @@ internal static class BMRPlanUpdater
 	{
 		var actions = DataCenter.BMRPlannedActions;
 		var elapsedSincePoll = (float)(now - _lastPoll).TotalSeconds;
+		var rotationActions = RotationUpdater.CurrentRotationActions ?? [];
+		var dutyActions = DataCenter.CurrentDutyRotation?.AllActions ?? [];
+		var nativeBrdWeaveOwner = BMRPlan_IPCSubscriber.HasNativeBrdWeaveOwner;
+		var reservationHorizon = ActionUpdater.NextGCDAction == null ? DataCenter.DefaultGCDTotal : DataCenter.DefaultGCDRemain;
+		DataCenter.BMRReservedUtilityActions.Clear();
+		DataCenter.BMRUtilityGcdHold = false;
+		DataCenter.BMRUtilityAbilityHold = false;
+		if (DataCenter.InCombat && DataCenter.Job == ECommons.ExcelServices.Job.BRD)
+		{
+			foreach (var planned in actions)
+			{
+				// Lookahead cannot resolve dispel/target conditions; reserve only native self utilities.
+				if (!PlannedMchUtilityWeave.CanReserveBrdUtility(nativeBrdWeaveOwner, planned.ActionId,
+						planned.Target, planned.TargetParam, planned.OptionName,
+						StatusHelper.PlayerHasStatus(false, StatusHelper.RangePhysicalDefense))
+					|| !PlannedMchUtilityWeave.ShouldReserveUtilityWindow(planned.ActivationIn - elapsedSincePoll,
+						planned.WindowEndIn - elapsedSincePoll, reservationHorizon)) continue;
+				var utility = ((ActionID)planned.ActionId).GetActionFromID(false, rotationActions, dutyActions);
+				if (utility != null && utility.EnoughLevel && utility.Cooldown.CurrentCharges > 0)
+				{
+					DataCenter.BMRReservedUtilityActions.Add(planned.ActionId);
+					DataCenter.BMRUtilityAbilityHold |= PlannedMchUtilityWeave.ShouldHoldAbilityForUtility(planned.WindowEndIn - elapsedSincePoll);
+					// A GCD just before a narrow mitigation window would lock it out entirely.
+					DataCenter.BMRUtilityGcdHold |= !DataCenter.WeaveLimitReached && PlannedMchUtilityWeave.ShouldHoldGcdForUtility(
+						planned.ActivationIn - elapsedSincePoll, planned.WindowEndIn - elapsedSincePoll, DataCenter.DefaultGCDRemain);
+				}
+			}
+		}
 
 		// The same action can appear several times in a plan (e.g. a cooldown at two timestamps), so
 		// work out which ids are active before forgetting any; otherwise a later, inactive entry would
@@ -144,8 +180,6 @@ internal static class BMRPlanUpdater
 			return;
 		}
 
-		var rotationActions = RotationUpdater.CurrentRotationActions ?? [];
-		var dutyActions = DataCenter.CurrentDutyRotation?.AllActions ?? [];
 		var nativeMchWeaveOwner = BMRPlan_IPCSubscriber.HasNativeMchWeaveOwner;
 
 		foreach (var planned in actions)
@@ -159,6 +193,9 @@ internal static class BMRPlanUpdater
 			// Keep prediction data, but never create a second executor for the same mitigation.
 			if (planned.ActionId is (uint)ActionID.TacticianPvE or (uint)ActionID.DismantlePvE
 				&& nativeMchWeaveOwner)
+				continue;
+			if (planned.ActionId is (uint)ActionID.TroubadourPvE or (uint)ActionID.NaturesMinnePvE or (uint)ActionID.TheWardensPaeanPvE
+				&& nativeBrdWeaveOwner)
 				continue;
 
 			// The command queue cannot carry BMR target overrides; native BMR must execute these entries.
