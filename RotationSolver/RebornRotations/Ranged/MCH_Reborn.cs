@@ -860,7 +860,7 @@ public class MCH_Reborn : MachinistRotation
 	/// the BossMod module loads but reports "downtime in: unknown" - so TTK is the only backstop
 	/// against deploying into downtime, and a wasted Queen is dearer than a capped gauge.
 	/// </summary>
-	private bool TryDeployQueen(out IAction? act)
+	protected virtual bool TryDeployQueen(out IAction? act)
 		=> AutomatonQueenPvE.EnoughLevel
 			? AutomatonQueenPvE.CanUse(out act)
 			: RookAutoturretPvE.CanUse(out act);

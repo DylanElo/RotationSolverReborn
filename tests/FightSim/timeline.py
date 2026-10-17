@@ -4,7 +4,7 @@ python -I timeline.py <report code> <fight id> <player name> [out.json]
 
 Pulls every event through the xivanalysis FFLogs proxy and keeps what the rotation reads from the game:
 enemy targetability, HP and positions, the player's position and target, party buffs and the debuffs that lock
-the player out. The player's own casts and damage are kept only to compare the sim with what happened.
+the player out. The player's own casts and damage (and their pet's) are kept only to compare the sim with what happened.
 """
 import json, os, sys, time, urllib.error, urllib.request
 
@@ -15,7 +15,14 @@ PARTY_BUFFS = {
     "Battle Litany": ("DRG", 1.0), "Technical Finish": ("DNC", 1.05), "Arcane Circle": ("RPR", 1.03),
     "Embolden": ("RDM", 1.05), "Searing Light": ("SMN", 1.05),
     "The Balance": ("AST", 1.03), "The Spear": ("AST", 1.06),
+    "Battle Voice": ("BRD", 1.0), "Radiant Finale": ("BRD", 1.06),  # a party Bard's, for MCH (a BRD player's own are not party buffs)
 }
+# Party debuffs on enemies that RSR's Buffs catalog knows (name -> job, damage multiplier).
+ENEMY_DEBUFFS = {"Chain Stratagem": ("SCH", 1.0), "Mug": ("NIN", 1.05), "Dokumori": ("NIN", 1.05)}
+JOBS = {"Paladin": "PLD", "Warrior": "WAR", "DarkKnight": "DRK", "Gunbreaker": "GNB", "WhiteMage": "WHM", "Scholar": "SCH",
+        "Astrologian": "AST", "Sage": "SGE", "Monk": "MNK", "Dragoon": "DRG", "Ninja": "NIN", "Samurai": "SAM", "Reaper": "RPR",
+        "Viper": "VPR", "Bard": "BRD", "Machinist": "MCH", "Dancer": "DNC", "BlackMage": "BLM", "Summoner": "SMN", "RedMage": "RDM",
+        "Pictomancer": "PCT"}
 # Other jobs' two-minute raid buffs: their casts mark the party's burst windows.
 RAID_BUFFS = {"Brotherhood", "Divination", "Starry Muse", "Battle Litany", "Technical Finish", "Arcane Circle", "Embolden",
               "Searing Light", "Chain Stratagem", "Mug", "Dokumori"}
@@ -42,6 +49,8 @@ def main():
     t0, t1 = fight["start_time"], fight["end_time"]
     me = next(p for p in meta["friendlies"] if p["name"] == player and any(f["id"] == fight_id for f in p["fights"]))
     enemies = {p["id"]: p for p in meta["enemies"] if p["guid"] < 1_000_000}
+    pets = {p["id"] for p in meta.get("friendlyPets", []) if p.get("petOwner") == me["id"]}  # MCH: Automaton Queen
+    party_jobs = sorted({JOBS.get(p["type"], p["type"]) for p in meta["friendlies"] if any(f["id"] == fight_id for f in p["fights"]) and p["type"] in JOBS})
 
     events, t = [], t0
     while t is not None and t < t1:
@@ -61,7 +70,7 @@ def main():
         return actors[k]
 
     me_pos, my_target, my_casts, my_damage, party, debuffs, open_buffs = [], [], [], 0, [], [], {}
-    my_hits, enemy_casts, stats, raid_casts = [], [], {}, []
+    my_hits, enemy_casts, stats, raid_casts, enemy_debuffs = [], [], {}, [], []
     for ev in events:
         ts, ty = sec(ev["timestamp"]), ev["type"]
         src, tgt = ev.get("sourceID"), ev.get("targetID")
@@ -93,6 +102,9 @@ def main():
                     my_hits.append([ts, ev["ability"]["name"], ev["amount"], ev.get("hitType") == 2, bool(ev.get("directHit")), bool(ev.get("tick"))])
             if ty == "combatantinfo":
                 stats = {"crit": ev.get("simulatedCrit", 0.2), "dh": ev.get("simulatedDirectHit", 0.2)}
+        if src in pets and ty == "damage" and ev.get("amount", 0) > 0:
+            my_damage += ev["amount"]
+            my_hits.append([ts, ev["ability"]["name"], ev["amount"], ev.get("hitType") == 2, bool(ev.get("directHit")), bool(ev.get("tick"))])
         if ty == "begincast" and src in enemies:
             enemy_casts.append({"key": key(src, ev.get("sourceInstance")), "id": ev["ability"]["guid"], "start": ts, "duration": ev.get("duration", 0) / 1000})
         name = ev.get("ability", {}).get("name")
@@ -104,6 +116,13 @@ def main():
             elif ty == "removebuff" and name in open_buffs:
                 job, mult = PARTY_BUFFS[name]
                 party.append({"name": name, "job": job, "mult": mult, "start": open_buffs.pop(name), "end": ts})
+        if tgt in enemies and ev.get("sourceIsFriendly") and name in ENEMY_DEBUFFS:
+            k = key(tgt, ev.get("targetInstance"))
+            if ty in ("applydebuff", "refreshdebuff"):
+                open_buffs.setdefault("enemy:" + name + ":" + k, ts)
+            elif ty == "removedebuff" and "enemy:" + name + ":" + k in open_buffs:
+                job, mult = ENEMY_DEBUFFS[name]
+                enemy_debuffs.append({"key": k, "name": name, "job": job, "mult": mult, "start": open_buffs.pop("enemy:" + name + ":" + k), "end": ts})
         if tgt == me["id"] and name in PLAYER_DEBUFFS:
             if ty == "applydebuff":
                 open_buffs.setdefault("debuff:" + name, ts)
@@ -111,7 +130,7 @@ def main():
                 debuffs.append({"name": name, "start": open_buffs.pop("debuff:" + name), "end": ts})
 
     for name, start in list(open_buffs.items()):  # still up at the kill
-        if not name.startswith("debuff:"):
+        if not name.startswith(("debuff:", "enemy:")):
             job, mult = PARTY_BUFFS[name]
             party.append({"name": name, "job": job, "mult": mult, "start": start, "end": sec(t1)})
 
@@ -167,7 +186,8 @@ def main():
         windows.append({"start": round(start, 2), "end": round(start + 20, 2), "potion": any(start - 15 <= p <= start + 25 for p in pots)})
 
     json.dump({
-        "source": f"{code}#{fight_id}", "player": player, "duration": duration, "kill": fight.get("kill", False),
+        "source": f"{code}#{fight_id}", "player": player, "job": JOBS.get(me["type"], me["type"]), "partyJobs": party_jobs,
+        "enemyDebuffs": enemy_debuffs, "planHiddenAcrossKills": True, "duration": duration, "kill": fight.get("kill", False),
         "actors": list(actors.values()), "playerPos": me_pos, "playerTarget": my_target, "partyBuffs": party,
         "playerDebuffs": debuffs, "planWindows": windows, "loggedCasts": my_casts, "loggedDamage": my_damage,
         "loggedHits": my_hits, "stats": stats, "enemyCasts": enemy_casts,

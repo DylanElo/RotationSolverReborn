@@ -247,11 +247,38 @@ public class MCH_SyncPlus : MCH_Reborn
 	/// </summary>
 	private bool IsCurrentTargetBoss => SchedulerTarget?.IsBossFromIcon() == true;
 	private bool TargetDying => SchedulerTarget?.IsDying() == true;
+	private static IBattleChara? QueenTarget
+		=> SchedulerTarget is { IsTargetable: true } target && AllHostileTargets.Any(t => t.GameObjectId == target.GameObjectId)
+			? target
+			: HostileTarget is { IsTargetable: true } hostile && AllHostileTargets.Any(t => t.GameObjectId == hostile.GameObjectId)
+				? hostile : null;
+	private static bool HasAttackableQueenTarget => QueenTarget != null;
+	private static float QueenObjectiveIn => QueenTarget is { } target
+		? MCHSyncPlusPolicy.ObjectiveIn(target.GetHealthRatio(), target.GetTTK(), MCHSyncPlusPolicy.PhaseObjective(target.BaseId))
+		: float.NaN;
+	// A fresh FRU boss has no HP-based TTK yet; use its finite uptime estimate without overriding measured ends.
+	private float QueenForecastObjectiveIn
+	{
+		get
+		{
+			if (!DataCenter.IsInFRU || !TimelineAvailable || DowntimeIn is not (> 0f and < 999f)
+				|| QueenTarget is not { } target || !float.IsNaN(target.GetTTK()) || target.IsDying()
+				|| target.BaseId is not (0x459B or 0x459F or 0x45A7 or 0x45A9 or 0x45AB or 0x45AF)) return float.NaN;
+			var hp = target.GetHealthRatio();
+			if (target.BaseId is 0x459F or 0x45A7 && hp <= 0.20f) return float.NaN;
+			var recent = RecentObjectiveInOf(target);
+			if (!float.IsNaN(recent) && recent < RequiredQueenLifetime) return float.NaN;
+			return MCHSyncPlusPolicy.ObjectiveIn(hp, DowntimeIn, MCHSyncPlusPolicy.PhaseObjective(target.BaseId));
+		}
+	}
+
 	private bool ShouldOverdriveQueen
 	{
 		get
 		{
-			var target = SchedulerTarget;
+			// A departed phase's HP and forecast say nothing about the next target the pet will attack.
+			if (!HasAttackableQueenTarget) return false;
+			var target = QueenTarget;
 			var ttk = target?.GetTTK() ?? float.NaN;
 			// SummonTime already has the current GCD remainder subtracted out, which makes it a
 			// weave-scheduling value, not a lifetime. Comparing a wall-clock TTK or downtime
@@ -261,9 +288,10 @@ public class MCH_SyncPlus : MCH_Reborn
 			// A Queen whose target dies rarely finishes on the next one: 6 of 21 crystal-phase Queens
 			// in logs landed Crowned Collider despite other crystals being up, so an imminent death
 			// Overdrives regardless of QueenHasNextTarget.
-			var queenOutlivesTarget = ((TargetDying
+			var knownTargetLifetime = ttk >= 0f && ttk < float.MaxValue;
+			var queenOutlivesTarget = (((target?.IsDying() == true && !knownTargetLifetime)
 				|| (!float.IsNaN(ttk) && ttk <= summonRemaining)) && !QueenHasNextTarget)
-				|| MCHSyncPlusPolicy.QueenTargetEndsSoon(RecentObjectiveIn, summonRemaining);
+				|| MCHSyncPlusPolicy.QueenTargetEndsSoon(RecentObjectiveInOf(target), summonRemaining);
 			var queenOutlivesUptime = TimelineAvailable
 				&& DowntimeWithin(summonRemaining);
 			return MCHSyncPlusPolicy.ShouldOverdriveQueen(
@@ -349,8 +377,25 @@ public class MCH_SyncPlus : MCH_Reborn
 
 	/// <summary>A cooldown spent on worthless damage is only free if it is back by the next phase.</summary>
 	protected override bool ShouldHoldTool(IBaseAction tool)
-		=> BankingTools && MCHSyncPlusPolicy.ToolRefillAfterUse(
-			tool.Cooldown.IsCoolingDown ? tool.Cooldown.RecastTimeRemain : 0f, tool.Cooldown.RecastTimeOneChargeRaw) > NextUptimeIn;
+		=> (BankingTools && MCHSyncPlusPolicy.ToolRefillAfterUse(
+			tool.Cooldown.IsCoolingDown ? tool.Cooldown.RecastTimeRemain : 0f, tool.Cooldown.RecastTimeOneChargeRaw) > NextUptimeIn)
+			|| ShouldWeaveQueenBeforeGenerator(tool);
+
+	private bool ShouldWeaveQueenBeforeGenerator(IBaseAction tool)
+	{
+		_ = Decision;
+		if (!DataCenter.IsInFRU || tool.ID is not ((uint)ActionID.AirAnchorPvE or (uint)ActionID.ChainSawPvE)
+			|| !tool.IsEnabled || !tool.EnoughLevel || !tool.Cooldown.HasOneCharge || Battery <= 80
+			|| IsRobotActive || IsOverheated || HasWildfire || HasReassembled
+			|| ShouldHardHoldQueen(20) || !TryDeployQueen(out _)) return false;
+		// Mature targets keep their tool cadence; this hold only fixes a fresh phase's missing TTK history.
+		var remaining = QueenForecastObjectiveIn;
+		if (!(remaining >= RequiredQueenLifetime + GCDTime(1))) return false;
+		if (_queenGeneratorHoldStartedAt < 0f || EncounterTime < _queenGeneratorHoldStartedAt)
+			_queenGeneratorHoldStartedAt = EncounterTime;
+		// One non-Battery GCD opens the Queen weave; a failed or starved weave must not keep drifting the tool.
+		return EncounterTime - _queenGeneratorHoldStartedAt < GCDTime(1);
+	}
 
 	private bool HasPartyBurstSources
 	{
@@ -646,10 +691,11 @@ public class MCH_SyncPlus : MCH_Reborn
 	/// still up, throwing away 50 Battery.
 	/// </summary>
 	// A second enemy that is dying too (the P4 pair) is not somewhere for the Queen to go.
-	private bool QueenHasNextTarget => AllHostileTargets.Any(t => t != SchedulerTarget && !t.IsDying());
+	private bool QueenHasNextTarget => AllHostileTargets.Any(t => t.GameObjectId != QueenTarget?.GameObjectId && !t.IsDying());
 
 	/// <summary>Same target-life guard as Wildfire, unless another enemy is left to take the Hypercharge (M3 logs: Barrel at the kill).</summary>
-	protected override bool ShouldHoldBarrel => (TargetEndsBeforeWildfirePayload || TargetDying) && !QueenHasNextTarget;
+	protected override bool ShouldHoldBarrel => (TargetEndsBeforeWildfirePayload || TargetDying)
+		&& !AllHostileTargets.Any(t => t != SchedulerTarget && !t.IsDying());
 
 	/// <summary>
 	/// FRU P3/P4: Barrel goes on cooldown ahead of the buffs so it is back for the CT downtime Barrel (top MCH logs: P3 ~8:10,
@@ -664,14 +710,14 @@ public class MCH_SyncPlus : MCH_Reborn
 	private float RequiredQueenLifetime => Math.Max(QueenExecutionWindow, AutomatonQueenPvE.EnoughLevel
 		? AutomatonQueenPvE.Config.TimeToKill : RookAutoturretPvE.Config.TimeToKill);
 	// Battery carries into the next phase, so a phase end is never a "last chance" Queen.
-	private bool LastViableQueenWindow => (!AutomaticDungeon || _dungeonBossEncounter) && !ObjectiveCarries
+	private bool LastViableQueenWindow => (!AutomaticDungeon || _dungeonBossEncounter) && QueenTarget is { } target && MCHSyncPlusPolicy.PhaseObjective(target.BaseId) == null
 		&& MCHSyncPlusPolicy.ShouldReleaseFinalQueen(
-		Battery, IsRobotActive, SchedulerTarget?.GetTTK() ?? float.NaN,
+		Battery, IsRobotActive, QueenTarget?.GetTTK() ?? float.NaN,
 		RequiredQueenLifetime,
 		GCDTime(2) + 1f, TimelineAvailable ? DowntimeIn : float.MaxValue);
 
 	protected override bool ShouldHardHoldQueen(int projectedBatteryGain)
-		=> MCHSyncPlusPolicy.ShouldHoldQueenForLifetime(QueenHasNextTarget ? float.NaN : ObjectiveIn, RequiredQueenLifetime)
+		=> MCHSyncPlusPolicy.ShouldHoldQueenForLifetime(QueenHasNextTarget ? float.NaN : QueenObjectiveIn, RequiredQueenLifetime)
 		|| (!LastViableQueenWindow && (MCHSyncPlusPolicy.ShouldHardHoldQueen(
 			TimelineAvailable,
 			DowntimeWithin(RequiredQueenLifetime))
@@ -682,6 +728,22 @@ public class MCH_SyncPlus : MCH_Reborn
 		|| MCHSyncPlusPolicy.ShouldHoldQueenForBatteryTarget(
 			Battery, QueenBatteryTarget, projectedBatteryGain)));
 
+	protected override bool TryDeployQueen(out IAction? act)
+	{
+		act = null;
+		// Ignore a departing phase's global average only when an actual hostile has enough measured lifetime.
+		var knownLifetime = QueenObjectiveIn >= RequiredQueenLifetime && QueenObjectiveIn < float.MaxValue
+			|| AllHostileTargets.Any(t => t.GameObjectId != QueenTarget?.GameObjectId && t.IsTargetable && !t.IsDying()
+				&& MCHSyncPlusPolicy.ObjectiveIn(t.GetHealthRatio(), t.GetTTK(), MCHSyncPlusPolicy.PhaseObjective(t.BaseId)) is var remaining
+				&& remaining >= RequiredQueenLifetime && remaining < float.MaxValue);
+		if (!HasAttackableQueenTarget || (QueenTarget?.IsDying() == true && !QueenHasNextTarget && !knownLifetime)
+			|| MCHSyncPlusPolicy.ShouldHoldQueenForLifetime(QueenHasNextTarget ? float.NaN : QueenObjectiveIn, RequiredQueenLifetime)
+			|| DowntimeWithin(RequiredQueenLifetime)) return false;
+		return AutomatonQueenPvE.EnoughLevel
+			? AutomatonQueenPvE.CanUse(out act, skipTTKCheck: knownLifetime || QueenForecastObjectiveIn >= RequiredQueenLifetime)
+			: RookAutoturretPvE.CanUse(out act, skipTTKCheck: knownLifetime || QueenForecastObjectiveIn >= RequiredQueenLifetime);
+	}
+
 	protected override bool ShouldHoldQueen
 	{
 		get
@@ -691,7 +753,7 @@ public class MCH_SyncPlus : MCH_Reborn
 			if (Battery >= 100 || LastViableQueenWindow) return false;
 
 			// No Battery test needed - the capped case already returned above.
-			if (!DowntimeGuardActive && TargetDying) return true;
+			if (!DowntimeGuardActive && QueenTarget?.IsDying() == true) return true;
 
 			// Deliberately NOT "if (ReserveBurst) return true;" any more. ReserveBurst conflates two
 			// unrelated states - "Auto Burst is off" and "banking for the next dungeon boss" - and
@@ -784,12 +846,17 @@ public class MCH_SyncPlus : MCH_Reborn
 	/// MCH_Reborn.EmergencyAbility nests inside this one property, so it is the only choke point
 	/// that can hold all of them off long enough for the Wildfire weave to get its legal slot.
 	/// </summary>
+	// Preserve available CT Heat for P5 Wildfire without spending a paid Hypercharge before that handoff.
+	private bool ReserveHeatForPandora
+		=> IsBurst && DataCenter.IsInFRU && _reserveHeatForPandora
+			&& WildfirePvE.IsEnabled && WildfirePvE.EnoughLevel && !HasWildfire && !HasHypercharged
+			&& (Heat < 100 || (PartyBurstActive && WildfirePvE.Cooldown.HasOneCharge));
+
 	protected override bool ShouldUseHypercharge
 		=> MCHSyncPlusPolicy.ShouldUseHypercharge(
-			// Heat banks only once the check is met (BankingTools), not when it is predicted soon: top FRU MCH logs
-			// Hypercharge 1-9s before Usurper/Oracle cross 20% (5/8) and into the P4 kill (4/8). Banked Heat is only
-			// dumped when sitting capped would waste more than the 50 it costs.
-			ObjectiveCarries ? BankingTools && !(Heat == 100 && TargetTimeLeft > 30f) : TargetDying,
+			// Keep the earlier phase-objective policy; P4 also reserves a paid payload for Pandora below.
+			// A capped gauge can still spend when a full Hypercharge has time to land.
+			ObjectiveCarries ? BankingTools && !(Heat == 100 && TargetTimeLeft > HyperchargePayloadWindow) : TargetDying,
 			HasWildfire,
 			DowntimeWithin(GCDTime(3)),
 			Decision.Downtime == MCHSyncPlusDowntimeAction.HoldCeiling,
@@ -798,7 +865,8 @@ public class MCH_SyncPlus : MCH_Reborn
 			WildfirePayloadWindowClosing,
 			ToolChargeWithinRestWindow)
 		&& !PendingWildfireAroundFullMetal
-		&& !BarrelHandoffPending;
+		&& !BarrelHandoffPending
+		&& !ReserveHeatForPandora;
 
 	/// <summary>
 	/// Barrel Stabilizer is about to open a committed burst: the capped-Heat Hypercharge (an emergency, so it ran
@@ -836,6 +904,8 @@ public class MCH_SyncPlus : MCH_Reborn
 	{
 		get
 		{
+			// A returning Barrel must not replace a live Wildfire's fifth Blazing Shot with a slower GCD.
+			if (HasWildfire && IsOverheated) return false;
 			// The expiring-buff path in GeneralGCD still spends it before it is lost.
 			if (BankingTools) return false;
 			if (UnclaimedBarrelBuffs) return true;
@@ -875,7 +945,7 @@ public class MCH_SyncPlus : MCH_Reborn
 			return true;
 		}
 
-		if (MCHSyncPlusPolicy.ShouldPrioritizeFullMetalAfterWildfire(
+		if (!IsOverheated && MCHSyncPlusPolicy.ShouldPrioritizeFullMetalAfterWildfire(
 			HasFullMetalMachinist,
 			HasWildfire,
 			IsLastAction(false, WildfirePvE))
@@ -941,14 +1011,32 @@ public class MCH_SyncPlus : MCH_Reborn
 			&& Decision.Wildfire != MCHSyncPlusBurstGate.Commit
 			&& MCHSyncPlusPolicy.BarrelBuffsUnclaimed(BarrelBuffsLeft, SecondsUntilExpectedPartyBurst);
 
+	// Offensive banking margins are below the actual P2/P3 pass threshold and cannot prove an unfinished phase.
+	private bool CanPreSummonQueenInPhase
+		=> DataCenter.IsInFRU && (_lastAttackableQueenPhase is 0x459F or 0x45A7 ? 0.20f
+			: MCHSyncPlusPolicy.PhaseObjective(_lastAttackableQueenPhase)) is float goal
+			&& _lastAttackableQueenPhaseHp > goal
+			// Clearing the hard target during CT does not remove the boss from the object table.
+			&& Svc.Objects.SearchById(_lastAttackableQueenPhaseObjectId) is IBattleChara target
+			&& target.GameObjectId == _lastAttackableQueenPhaseObjectId
+			&& target.BaseId == _lastAttackableQueenPhase && target.GetHealthRatio() > goal;
+
+	private bool CanPreSummonShiva
+		=> DataCenter.IsInFRU && _lastAttackableQueenPhase == 0x459B
+			&& Svc.Objects.SearchById(_lastAttackableQueenPhaseObjectId) is IBattleChara fatebreaker
+			&& fatebreaker.GameObjectId == _lastAttackableQueenPhaseObjectId
+			&& fatebreaker.BaseId == 0x459B && fatebreaker.GetHealthRatio() == 0f
+			&& Svc.Objects.OfType<IBattleChara>().Any(t => t.BaseId == 0x459F && t.GetHealthRatio() >= 0.99f);
+
 	/// <summary>
 	/// Boss-gone actions from the top FRU logs (3/3 kills, P4 downtime ~11:35-12:26): Barrel ~15s before the boss
 	/// returns when the next burst is a full Barrel cycle away (it is back for P5's opener, one extra Barrel per
-	/// kill), and Queen ~4s before it so she is hitting on return. Wildfire stays buffs-only.
+	/// kill). Queen may prepare a known return within the same unfinished phase. Wildfire stays buffs-only.
 	/// AttackAbility never runs without a target in range, so these live here.
 	/// </summary>
 	protected override bool GeneralAbility(IAction nextGCD, out IAction? act)
 	{
+		_ = Decision;
 		var uptimeIn = BMRDowntimeEndIn;
 		if (InCombat && !HasHostilesInRange && TimelineAvailable)
 		{
@@ -958,16 +1046,21 @@ public class MCH_SyncPlus : MCH_Reborn
 				return true;
 			}
 
+			var crystalReturnIn = _crystalReturnAt - EncounterTime;
+			var crystalReturnKnown = _lastAttackableQueenPhase == 0x459F && crystalReturnIn is > 0f and <= 4.5f
+				&& Svc.Objects.SearchById(_lastAttackableQueenPhaseObjectId) is IBattleChara shiva
+				&& shiva.BaseId == 0x459F && shiva.GameObjectId == _lastAttackableQueenPhaseObjectId
+				&& shiva.GetHealthRatio() is > 0f and <= 0.20f;
+			var queenUptimeIn = crystalReturnKnown ? crystalReturnIn : uptimeIn;
 			var battery = Battery;
-			// Battery the return's tools bring in its first GCDs (top FRU CT return: Chain Saw, Excavator, Air Anchor). The
-			// battery-target hold stands down when they would cap the gauge, as in uptime; passing 0 held a sub-100 Queen
-			// until the first tool, ~3s late.
-			var toolsBy = uptimeIn + GCDTime(3);
+			var toolsBy = queenUptimeIn + GCDTime(3);
 			var returnGain = MCHSyncPlusPolicy.ReturnBatteryGain(
 				AirAnchorPvE.EnoughLevel && AirAnchorPvE.Cooldown.WillHaveOneCharge(toolsBy),
 				ChainSawPvE.EnoughLevel && ChainSawPvE.Cooldown.WillHaveOneCharge(toolsBy),
 				HasExcavatorReady && !StatusHelper.PlayerWillStatusEnd(toolsBy, true, StatusID.ExcavatorReady));
-			if (MCHSyncPlusPolicy.ShouldPreSummonQueen(uptimeIn, battery, IsRobotActive)
+			// A completed HP check means this forecast may describe the departing phase, not an actual return.
+			if ((CanPreSummonQueenInPhase || CanPreSummonShiva || crystalReturnKnown)
+				&& MCHSyncPlusPolicy.ShouldPreSummonQueen(queenUptimeIn, battery, IsRobotActive)
 				&& !ShouldHoldQueen && !ShouldHardHoldQueen(returnGain)
 				&& AutomatonQueenPvE.CanUse(out act, skipTTKCheck: true))
 			{
@@ -1006,17 +1099,7 @@ public class MCH_SyncPlus : MCH_Reborn
 			return true;
 		}
 
-		// Protect the two burst handoffs from a pet weave; terminal Detonator still wins below.
-		if (!(HasWildfire && HasFullMetalMachinist) && !PostFullMetalWildfirePayloadPending
-			&& ShouldOverdriveQueen
-			&& (QueenOverdrivePvE.EnoughLevel
-				? QueenOverdrivePvE.CanUse(out act, skipTTKCheck: true, targetOverride: TargetType.Self)
-				: RookOverdrivePvE.CanUse(out act, skipTTKCheck: true, targetOverride: TargetType.Self)))
-		{
-			LogQueenTimelineState("overdrive");
-			return true;
-		}
-		// Ahead of Hypercharge deliberately. Once the terminal predicate is true there may be a
+		// Ahead of pet weaves and Hypercharge. Once the terminal predicate is true there may be a
 		// single weave slot left, and starting a fresh payload with it banks damage that will never
 		// detonate - whereas Detonator releases everything Wildfire has already accumulated.
 		if (MCHSyncPlusPolicy.ShouldDetonateWildfire(
@@ -1026,6 +1109,17 @@ public class MCH_SyncPlus : MCH_Reborn
 			DowntimeWithin(1f))
 			&& DetonatorPvE.CanUse(out act, skipTTKCheck: true))
 		{
+			return true;
+		}
+
+		// Protect the two burst handoffs from a pet weave; terminal Detonator has priority above.
+		if (!(HasWildfire && HasFullMetalMachinist) && !PostFullMetalWildfirePayloadPending
+			&& ShouldOverdriveQueen
+			&& (QueenOverdrivePvE.EnoughLevel
+				? QueenOverdrivePvE.CanUse(out act, skipTTKCheck: true, targetOverride: TargetType.Self)
+				: RookOverdrivePvE.CanUse(out act, skipTTKCheck: true, targetOverride: TargetType.Self)))
+		{
+			LogQueenTimelineState("overdrive");
 			return true;
 		}
 
@@ -1184,6 +1278,13 @@ public class MCH_SyncPlus : MCH_Reborn
 			_lastCappedBatterySource = string.Empty;
 			_queenDeployedThisFight = false;
 			_robotWasActive = false;
+			_queenGeneratorHoldStartedAt = -1f;
+			_reserveHeatForPandora = false;
+			_absoluteZeroCastEnd = -1f;
+			_crystalReturnAt = -1f;
+			_lastAttackableQueenPhase = 0;
+			_lastAttackableQueenPhaseObjectId = 0;
+			_lastAttackableQueenPhaseHp = float.NaN;
 			_lastRotationState = string.Empty;
 			_partyBurstWasActive = false;
 			_anchorWasWorthy = false;
@@ -1201,7 +1302,63 @@ public class MCH_SyncPlus : MCH_Reborn
 
 		_lastEncounterTime = encounterTime;
 		UpdateExpectedPartyBuffs();
+		if (!InCombat || !DataCenter.IsInFRU || IsDead)
+		{
+			_queenGeneratorHoldStartedAt = -1f;
+			_reserveHeatForPandora = false;
+			_absoluteZeroCastEnd = -1f;
+			_crystalReturnAt = -1f;
+			_lastAttackableQueenPhase = 0;
+			_lastAttackableQueenPhaseObjectId = 0;
+			_lastAttackableQueenPhaseHp = float.NaN;
+		}
+		if (!IsBurst) _reserveHeatForPandora = false;
 		if (!InCombat) return;
+		if (DataCenter.IsInFRU && IsBurst && !HasHostilesInRange && HasHypercharged
+			&& TimelineAvailable && BMRDowntimeEndIn is > 0f and <= 15f
+			&& _lastAttackableQueenPhase is 0x45A9 or 0x45AB)
+			_reserveHeatForPandora = true;
+		if (DataCenter.IsInFRU && !IsDead && QueenTarget is { } phaseTarget)
+		{
+			if (phaseTarget.BaseId != _lastAttackableQueenPhase) _queenGeneratorHoldStartedAt = -1f;
+			if (phaseTarget.BaseId != _lastAttackableQueenPhase || phaseTarget.GameObjectId != _lastAttackableQueenPhaseObjectId)
+			{
+				_absoluteZeroCastEnd = -1f;
+				_crystalReturnAt = -1f;
+			}
+			_lastAttackableQueenPhase = phaseTarget.BaseId;
+			_lastAttackableQueenPhaseObjectId = phaseTarget.GameObjectId;
+			_lastAttackableQueenPhaseHp = phaseTarget.GetHealthRatio();
+			if (phaseTarget.BaseId == 0x45AF && HasWildfire) _reserveHeatForPandora = false;
+			else if (IsBurst && phaseTarget.BaseId is 0x45A9 or 0x45AB && QueenObjectiveIn == 0f)
+				_reserveHeatForPandora = true;
+		}
+
+		if (_lastAttackableQueenPhase == 0x459F
+			&& Svc.Objects.SearchById(_lastAttackableQueenPhaseObjectId) is IBattleChara shiva
+			&& shiva.BaseId == 0x459F && shiva.GameObjectId == _lastAttackableQueenPhaseObjectId)
+		{
+			if (shiva.IsCasting && shiva.CastActionId == 40224 && shiva.TotalCastTime > 0f)
+			{
+				_absoluteZeroCastEnd = encounterTime + Math.Max(0f, shiva.TotalCastTime - shiva.CurrentCastTime);
+				_crystalReturnAt = -1f;
+			}
+			else if (_absoluteZeroCastEnd >= 0f)
+			{
+				// Native FRU: raidwide 0.9s, knockback 2.3s, then crystals 18.9s after the observed cast finishes.
+				_crystalReturnAt = encounterTime >= _absoluteZeroCastEnd && shiva.GetHealthRatio() is > 0f and <= 0.20f
+					? encounterTime + 22.1f : -1f;
+				_absoluteZeroCastEnd = -1f;
+			}
+			else if (_crystalReturnAt >= 0f && shiva.GetHealthRatio() is not (> 0f and <= 0.20f))
+				_crystalReturnAt = -1f;
+		}
+		else if (_absoluteZeroCastEnd >= 0f || _crystalReturnAt >= 0f)
+		{
+			_absoluteZeroCastEnd = -1f;
+			_crystalReturnAt = -1f;
+		}
+		if (_crystalReturnAt >= 0f && encounterTime >= _crystalReturnAt) _crystalReturnAt = -1f;
 
 		// Death or ten seconds without an attackable target invalidates the old cadence.
 		// Require a full observed overlap to relearn it; a lone recovery cooldown is insufficient.
@@ -1224,6 +1381,7 @@ public class MCH_SyncPlus : MCH_Reborn
 		// the confirmed number alongside it makes the two directly comparable, so the ten-selections
 		// -against-nine-casts discrepancy can never again need FFLogs to detect.
 		var robotActive = IsRobotActive;
+		if (robotActive || Battery <= 80 || !InCombat || IsDead) _queenGeneratorHoldStartedAt = -1f;
 		if (robotActive && !_robotWasActive)
 		{
 			_queenDeployedThisFight = true;
@@ -1571,6 +1729,13 @@ public class MCH_SyncPlus : MCH_Reborn
 	private string _lastCappedBatterySource = string.Empty;
 	private bool _queenDeployedThisFight;
 	private bool _robotWasActive;
+	private float _queenGeneratorHoldStartedAt = -1f;
+	private bool _reserveHeatForPandora;
+	private float _absoluteZeroCastEnd = -1f;
+	private float _crystalReturnAt = -1f;
+	private uint _lastAttackableQueenPhase;
+	private ulong _lastAttackableQueenPhaseObjectId;
+	private float _lastAttackableQueenPhaseHp = float.NaN;
 
 	/// <summary>
 	/// The generator the last GCD implies, with the Battery it should have paid. Shared by the

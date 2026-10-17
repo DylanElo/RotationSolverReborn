@@ -1,51 +1,107 @@
 // FightSim: runs a real RSR rotation through a whole logged fight and reports its expected DPS next to the log's.
 //
-//   dotnet run --project tests/FightSim -- <timeline.json> [--seeds 20] [--config RotationSolver.json] [--trace]
+//   dotnet run --project tests/FightSim -- <timeline.json> [--seeds 20] [--config RotationSolver.json] [--rotation MCH_SyncPlus] [--trace]
 //
+// The job comes from the timeline (BRD when it does not say); the rotation defaults to BRD_Plan / MCH_Plan.
 // Timelines come from timeline.py (FFLogs kill -> enemies, party buffs, lockouts, plan windows, the player's hits).
+using System.ComponentModel;
 using System.Globalization;
 using System.Reflection;
 using System.Text.Json;
 using FightSim;
 using RotationSolver.Basic.Configuration.RotationConfig;
+using RotationSolver.Basic.Rotations;
 using RotationSolver.RebornRotations.Ranged;
 
 CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
 CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
 
-var path = args.FirstOrDefault(a => !a.StartsWith("--")) ?? throw new ArgumentException("usage: FightSim <timeline.json> [--seeds N] [--config RotationSolver.json] [--trace]");
+if (args.Contains("--check-mch-preparation"))
+{
+	MchQueenDecisionCheck.RunPreparation();
+	return 0;
+}
+if (args.Contains("--check-mch-queen") || args.Contains("--check-mch-phase-entry"))
+{
+	MchQueenDecisionCheck.Run();
+	return 0;
+}
+if (args.Contains("--check-mch-queen-model"))
+{
+	MchQueenModelCheck.Run();
+	return 0;
+}
+
+if (args.Contains("--check-downtime"))
+{
+	DowntimeForecastCheck.Run();
+	return 0;
+}
+
+var path = args.FirstOrDefault(a => !a.StartsWith("--")) ?? throw new ArgumentException("usage: FightSim <timeline.json> [--seeds N] [--config RotationSolver.json] [--rotation NAME] [--trace]");
 string? Opt(string name) => args.SkipWhile(a => a != name).Skip(1).FirstOrDefault();
 var seeds = int.Parse(Opt("--seeds") ?? "20");
 var trace = args.Contains("--trace");
+var checkCtCodas = args.Contains("--check-ct-codas");
+var seedReport = args.Contains("--seed-report");
+var replayUtilities = args.Contains("--replay-utilities");
+var seedStart = int.Parse(Opt("--seed-start") ?? "0");
 var configPath = Opt("--config") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "XIVLauncher", "pluginConfigs", "RotationSolver.json");
 
 var timeline = Timeline.Load(path);
+if (args.Contains("--check-ct-recovery"))
+{
+	BardCtRecoveryCheck.Run(timeline);
+	return 0;
+}
+if (args.Contains("--check-brd-model"))
+{
+	BardDamageCheck.Run(timeline);
+	return 0;
+}
 var crit = timeline.Stats.GetValueOrDefault("crit", 0.2f);
 var dh = timeline.Stats.GetValueOrDefault("dh", 0.2f);
-Console.WriteLine($"{timeline.Source} {timeline.Player}: {timeline.Duration:F0}s, crit {crit:P1} DH {dh:P1}, {timeline.PlanWindows.Count} plan windows");
+var jobName = timeline.Job ?? "BRD";
+var rotationType = typeof(BRD_Plan).Assembly.GetTypes().First(t => t.Name == (Opt("--rotation") ?? (jobName == "MCH" ? nameof(MCH_Plan) : nameof(BRD_Plan))));
+IJob NewJob() => jobName == "MCH" ? new Machinist(crit, dh) : new Bard(crit, dh);
+Game.BaseGcd = jobName == "MCH" ? 2.50f : 2.48f; // measured from the logs' GCD gaps
+Console.WriteLine($"{timeline.Source} {timeline.Player} {jobName} {rotationType.Name}: {timeline.Duration:F0}s, crit {crit:P1} DH {dh:P1}, {timeline.PlanWindows.Count} plan windows");
 
 var config = File.Exists(configPath) ? JsonDocument.Parse(File.ReadAllText(configPath)).RootElement : default;
+if (config.ValueKind == JsonValueKind.Object && config.TryGetProperty("_action6headDict", out var aheadByJob) && aheadByJob.TryGetProperty(jobName, out var aheadValue))
+	Game.ActionAhead = aheadValue.GetSingle();
 Console.WriteLine(config.ValueKind == JsonValueKind.Object ? $"RSR config: {configPath}" : "RSR config: none, rotation defaults");
 
 var phases = Phases(timeline);
 var runs = new List<(double Total, Dictionary<string, double> ByAction, double[] ByPhase)>();
-for (var seed = 0; seed < seeds; seed++)
+var ctFinaleRuns = 0;
+for (var seed = seedStart; seed < seedStart + seeds; seed++)
 {
-	Game.Reset(timeline, new Bard(crit, dh), seed);
-	var rotation = new BRD_Plan();
-	ApplyConfig(rotation, "BRD", "RotationSolver.RebornRotations.Ranged.BRD_Plan");
-	Run(rotation);
+	Game.Reset(timeline, NewJob(), seed);
+	var rotation = (CustomRotation)Activator.CreateInstance(rotationType)!;
+	ApplyConfig(rotation, jobName, rotationType.FullName!);
+	Run(rotation, seed, replayUtilities && jobName == "BRD");
+	if (checkCtCodas && BardCtCheck.Validate(timeline, seed)) ctFinaleRuns++;
 	var byPhase = phases.Select(p => Game.DamageEvents.Where(e => e.Time >= p.Start && e.Time < p.End).Sum(e => e.Damage)).ToArray();
 	runs.Add((Game.DamageEvents.Sum(e => e.Damage), Game.DamageByAction.GroupBy(kv => Norm(kv.Key)).ToDictionary(g => g.Key, g => g.Sum(kv => kv.Value)), byPhase));
-	if (trace && seed == 0)
+	if (seedReport)
+		Console.WriteLine("SEED " + JsonSerializer.Serialize(new { seed, total = runs[^1].Total / timeline.Duration,
+			phase = byPhase, byAction = runs[^1].ByAction,
+			casts = Game.Casts.Select(c => new { time = c.Time, action = c.Action, damage = c.Damage }) }));
+	if (trace && seed == seedStart)
 	{
 		foreach (var (t, a, target, damage) in Game.Casts) Console.WriteLine($"  {t,7:F2} {a}{(target == null ? "" : " -> " + target)}{(damage > 0 ? $"  {damage:F0}" : "")}");
 	}
 }
 
-// The log on the same scale: each hit with its crit/DH luck swapped for the expected value, then converted to potency
-// with the factor that makes the log's Burst Shots average 220 under the same multipliers the sim uses.
-var log = LogPotency(timeline, crit, dh);
+if (checkCtCodas)
+{
+	if (ctFinaleRuns == 0) throw new InvalidOperationException("No seed executed the corrected CT Finale path.");
+	Console.WriteLine($"BRD CT outcomes: {seeds} seeds passed; {ctFinaleRuns} executed CT Finale/Encore (three P5 Codas, burst windows and song coverage preserved).");
+}
+
+// The log on the same scale: each hit with its crit/DH luck swapped for the expected value, in the job's potency units.
+var log = LogTotals(NewJob().LogPotency(timeline));
 var sim = runs.Average(r => r.Total);
 Console.WriteLine();
 Console.WriteLine($"{"",-14}{"Sim",10}{"Log",10}{"Diff",8}   (potency/s, expected crits; sim = mean of {seeds} seeds, sd {Sd(runs.Select(r => r.Total / timeline.Duration)):F1})");
@@ -76,29 +132,58 @@ static double Sd(IEnumerable<double> xs)
 }
 
 // Steps the fight: the GCD when it is ready, otherwise a weave, the way CustomRotation.Invoke picks between them.
-static void Run(BRD_Plan rotation)
+static void Run(CustomRotation rotation, int seed, bool replayUtilities)
 {
 	const float dt = 0.02f;
 	var noGcd = BaseAction.Create(ActionID.None, (ref ActionSetting _) => { }); // CustomRotation passes AddlePvE when there is no GCD
-	var weaves = 0; // DataCenter.Weaves: two oGCDs, then nothing but a GCD (reset only by a GCD)
+	var weaves = new RotationSolver.Basic.Helpers.WeaveBudget();
+	var utility = replayUtilities ? new UtilityWeaveReplay(Game.Timeline) : null;
+	ushort sourceSequence = 0;
+	uint effectSequence = 0;
+	bool Use(IAction action, bool nativeUtility = false)
+	{
+		var isGcd = action is BaseAction a && Game.Job.Spec(Game.Job.Adjusted(a.ActionId)).IsGcd;
+		var sequence = ++sourceSequence;
+		var accepted = weaves.TryUse(true, isGcd, false, action.ID, () =>
+		{
+			Game.Execute(action);
+			if (!isGcd) weaves.RecordRequest(action.ID, sequence, Game.Now);
+			return true;
+		}, utility?.Reserved ?? 0, nativeUtility, Game.Now);
+		if (accepted) weaves.Record(isGcd, action.ID, ++effectSequence, sequence, Game.Now);
+		return accepted;
+	}
+	IAction? queued = null; // ActionHelper.CanUseGCD: within the action-ahead window RSR presses the GCD and the game queues it
 	while (Game.Now < Game.Timeline.Duration)
 	{
 		Game.Step(dt);
-		if (!Game.InCombat || Game.Locked || Game.AnimationLock > 0f) continue;
+		if (!Game.InCombat || Game.Locked) { queued = null; continue; }
+		if (Game.AnimationLock > 0f) continue;
 		var gcd = rotation.NextGcd();
-		if (gcd != null && Game.GcdRemain <= 0f)
+		if (utility != null) utility.HasGcd = gcd != null;
+		weaves.RefreshIdleWindow(gcd != null, Game.GcdTotal, Game.Now);
+		if (utility?.Due() is { } nativeUtility && Use(nativeUtility, true))
 		{
-			Game.Execute(gcd);
-			weaves = 0;
+			utility.Executed(nativeUtility.ActionId);
+			continue;
+		}
+		if (queued != null)
+		{
+			if (Game.GcdRemain > 0f || (utility?.HoldGcd == true && !weaves.Exhausted)) continue;
+			// The game drops a queued action whose target is gone.
+			if (queued is BaseAction q && (q.Target.Target is not { } t || Game.InRange(t))) Use(queued);
+			queued = null;
+			continue;
+		}
+		if (gcd != null && (utility?.HoldGcd != true || weaves.Exhausted) && Game.GcdRemain <= Game.GcdTotal * Game.ActionAhead)
+		{
+			queued = gcd;
 			continue;
 		}
 		var ability = rotation.NextAbility(gcd ?? noGcd);
-		if (ability != null && weaves < 2)
-		{
-			Game.Execute(ability);
-			weaves++;
-		}
+		if (ability != null) Use(ability);
 	}
+	utility?.Validate(seed);
 }
 
 // Copies the user's RSR settings: the rotation's [RotationConfig] properties and the per-action configs (enabled, AoE count, TTK, refresh).
@@ -113,7 +198,10 @@ void ApplyConfig(object rotation, string job, string rotationType)
 		{
 			if (!values.TryGetProperty(prop.Name, out var v)) continue;
 			var text = v.ToString();
-			object value = prop.PropertyType.IsEnum ? Enum.Parse(prop.PropertyType, text)
+			// RotationConfigBase: an enum is saved by name or by its [Description].
+			object value = prop.PropertyType.IsEnum ? (prop.PropertyType.GetFields(BindingFlags.Public | BindingFlags.Static)
+					.FirstOrDefault(f => f.Name == text || f.GetCustomAttribute<DescriptionAttribute>()?.Description == text)?.GetValue(null)
+					?? throw new InvalidDataException($"{prop.Name}: no {prop.PropertyType.Name} '{text}'"))
 				: prop.PropertyType == typeof(bool) ? bool.Parse(text)
 				: prop.PropertyType == typeof(float) ? float.Parse(text, CultureInfo.InvariantCulture)
 				: text;
@@ -122,14 +210,21 @@ void ApplyConfig(object rotation, string job, string rotationType)
 	}
 	if (config.GetProperty("_rotationActionConfigDict").TryGetProperty(job, out var actions))
 	{
-		foreach (var prop in typeof(BardRotation).GetProperties(BindingFlags.Static | BindingFlags.Public).Where(p => p.PropertyType == typeof(IBaseAction)))
+		var jobRotation = job == "MCH" ? typeof(MachinistRotation) : typeof(BardRotation);
+		foreach (var prop in jobRotation.GetProperties(BindingFlags.Static | BindingFlags.Public).Where(p => p.PropertyType == typeof(IBaseAction)))
 		{
 			var action = (BaseAction)prop.GetValue(null)!;
-			if (!actions.TryGetProperty(Bard.GameId(action.ActionId).ToString(), out var c)) continue;
+			var gameId = job == "MCH" ? Machinist.GameId(action.ActionId) : Bard.GameId(action.ActionId);
+			if (!actions.TryGetProperty(gameId.ToString(), out var c)) continue;
+			// BaseAction.Config: a stored AoE or refresh count only stands while the rotation's default it was set against is unchanged.
+			byte? Applied(string name) => c.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetByte() : null;
+			var defaults = action.Setting.CreateConfig?.Invoke() ?? new ActionConfig();
 			action.Config.IsEnabled = c.GetProperty("IsEnabled").GetBoolean();
-			action.Config.AoeCount = c.GetProperty("AoeCount").GetByte();
 			action.Config.TimeToKill = c.GetProperty("TimeToKill").GetSingle();
-			action.Config.StatusRefreshGcdCount = c.GetProperty("StatusRefreshGcdCount").GetByte();
+			action.Config.AoeCount = c.GetProperty("AoeResetDone").GetBoolean() && Applied("AppliedDefaultAoeCount") == defaults.AoeCount
+				? c.GetProperty("AoeCount").GetByte() : defaults.AoeCount;
+			action.Config.StatusRefreshGcdCount = Applied("AppliedDefaultStatusRefreshGcdCount") == defaults.StatusRefreshGcdCount
+				? c.GetProperty("StatusRefreshGcdCount").GetByte() : defaults.StatusRefreshGcdCount;
 		}
 	}
 }
@@ -145,26 +240,6 @@ static List<(string Name, float Start, float End)> Phases(Timeline t)
 
 static string Norm(string name) => name.Replace(" ", "").Replace("'", "");
 
-static (double Total, Dictionary<string, double> ByAction, Func<float, float, double> ByPhase) LogPotency(Timeline t, float crit, float dh)
-{
-	var critDamage = 1.4f + crit - 0.05f;
-	var casts = t.LoggedCasts.Select(c => (T: c[0].GetSingle(), Name: c[1].GetString()!)).ToList();
-	bool Within(string name, float seconds, float at) => casts.Any(c => c.Name.Contains(name) && at >= c.T && at < c.T + seconds);
-	// B: damage buffs, E: expected crit/DH. A hit is potency x k x B x luck; in sim units it is potency x B x E.
-	double B(float at)
-	{
-		var m = 1.0;
-		if (Within("Raging Strikes", 20, at)) m *= 1.15;
-		if (Within("Radiant Finale", 20, at)) m *= 1.06; // ponytail: assumes 3 Codas, as nearly every logged Finale had
-		if (Within("Gemdraught", 30, at)) m *= Game.PotionMultiplier;
-		foreach (var b in t.PartyBuffs) if (at >= b.Start && at < b.End) m *= b.Mult;
-		return m;
-	}
-	double E(float at) => (1 + crit * (critDamage - 1)) * (1 + 0.25 * (dh + (Within("Battle Voice", 20, at) ? 0.2 : 0)));
-	var hits = t.LoggedHits.Select(h => (T: h[0].GetSingle(), Name: Norm(h[1].GetString()! + (h[5].GetBoolean() ? " (DoT)" : "")),
-		Base: h[2].GetDouble() / (h[3].GetBoolean() ? critDamage : 1) / (h[4].GetBoolean() ? 1.25 : 1))).ToList();
-	var k = hits.Where(h => h.Name == "BurstShot").Average(h => h.Base / (220 * B(h.T)));
-	var potency = hits.Select(h => (h.T, h.Name, P: h.Base * E(h.T) / k)).ToList();
-	return (potency.Sum(p => p.P), potency.GroupBy(p => p.Name).ToDictionary(g => g.Key, g => g.Sum(p => p.P)),
-		(a, b) => potency.Where(p => p.T >= a && p.T < b).Sum(p => p.P));
-}
+static (double Total, Dictionary<string, double> ByAction, Func<float, float, double> ByPhase) LogTotals(List<(float T, string Name, double P)> hits)
+	=> (hits.Sum(h => h.P), hits.GroupBy(h => Norm(h.Name)).ToDictionary(g => g.Key, g => g.Sum(h => h.P)),
+		(a, b) => hits.Where(h => h.T >= a && h.T < b).Sum(h => h.P));

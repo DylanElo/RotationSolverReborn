@@ -26,6 +26,8 @@ public sealed class BardGauge
 public sealed class Bard : IJob
 {
 	public string Abbr => "BRD";
+	public float AutoPotency => 68f; // measured from the log's Shot hits against Burst Shot = 220
+	public float AutoDelay => 3.04f;
 	public static BardGauge Gauge { get; private set; } = new();
 	private int _finaleCodas;
 	private float _nextSongTick;
@@ -63,7 +65,7 @@ public sealed class Bard : IJob
 		new(TheWanderersMinuetPvE, 3559, false, 52, 120, Shape: AoeShape.Self),
 		new(BattleVoicePvE, 118, false, 50, 120, Shape: AoeShape.Self),
 		new(RadiantFinalePvE, 25785, false, 90, 110, Shape: AoeShape.Self),
-		new(PitchPerfectPvE, 7404, false, 52, 1),
+		new(PitchPerfectPvE, 7404, false, 52, 1, Shape: AoeShape.CircleOnTarget, Radius: 5),
 		new(EmpyrealArrowPvE, 3558, false, 54, 15),
 		new(SidewinderPvE, 3562, false, 60, 60),
 		new(TroubadourPvE, 7405, false, 62, 90, Shape: AoeShape.Self),
@@ -118,8 +120,22 @@ public sealed class Bard : IJob
 		var m = 1f;
 		if (p.HasStatus(true, StatusID.RagingStrikes)) m *= 1.15f;
 		if (p.HasStatus(true, StatusID.RadiantFinale)) m *= 1f + 0.02f * _finaleCodas;
-		var dh = _dhRate + (p.HasStatus(true, StatusID.BattleVoice) ? 0.2f : 0f);
-		return m * (1f + _critRate * (_critDamage - 1f)) * (1f + 0.25f * dh);
+		if (Gauge.Song == Song.MagesBallad) m *= 1.01f;
+		var crit = Math.Min(1f, _critRate + (Gauge.Song == Song.WanderersMinuet ? 0.02f : 0f)
+			+ (p.HasStatus(false, StatusID.BattleLitany) ? 0.1f : 0f));
+		var dh = _dhRate + (p.HasStatus(true, StatusID.BattleVoice) ? 0.2f : 0f)
+			+ (Gauge.Song == Song.ArmysPaeon ? 0.03f : 0f);
+		return m * (1f + crit * (_critDamage - 1f)) * (1f + 0.25f * dh);
+	}
+
+	public float TargetCritMultiplier(IBattleChara target)
+	{
+		var enemy = Game.Enemies.FirstOrDefault(e => e.Chara == target);
+		if (!(Game.Timeline.EnemyDebuffs ?? []).Any(d => d.Key == enemy?.Actor.Key && d.Name == "Chain Stratagem"
+			&& Game.Now >= d.Start && Game.Now < d.End)) return 1f;
+		var crit = Math.Min(1f, _critRate + (Gauge.Song == Song.WanderersMinuet ? 0.02f : 0f)
+			+ (Game.Player.HasStatus(false, StatusID.BattleLitany) ? 0.1f : 0f));
+		return (1f + Math.Min(1f, crit + 0.1f) * (_critDamage - 1f)) / (1f + crit * (_critDamage - 1f));
 	}
 
 	public void OnDeath()
@@ -137,6 +153,7 @@ public sealed class Bard : IJob
 			if (Game.Rng.NextDouble() < 0.8) Repertoire();
 		}
 		// DoTs tick on the server's 3s clock with the multiplier they snapshotted.
+		// Empirical conversion to Burst Shot's damage scale: 24/30 here versus 20/25 in tooltips.
 		if ((int)(Game.Now / 3f) != (int)((Game.Now - dt) / 3f))
 		{
 			foreach (var e in Game.Enemies)
@@ -152,7 +169,7 @@ public sealed class Bard : IJob
 	private void ApplyDot(IBattleChara target, StatusID dot)
 	{
 		target.Statuses[dot] = 45f;
-		_snapshots[(target.GameObjectId, dot)] = Game.Multiplier();
+		_snapshots[(target.GameObjectId, dot)] = Game.Multiplier(target);
 	}
 
 	private void Repertoire()
@@ -221,9 +238,9 @@ public sealed class Bard : IJob
 				Game.Hit(target!, barraged ? 840 : 280, name);
 				break;
 			case ShadowbitePvE:
-				p.Statuses.Remove(StatusID.Barrage);
+				var shadowbiteBarrage = p.Statuses.Remove(StatusID.Barrage);
 				p.Statuses.Remove(StatusID.HawksEye_3861);
-				HitAll(220);
+				HitAll(shadowbiteBarrage ? 300 : 200);
 				break;
 			case LadonsbitePvE: HitAll(140); HawksEyeChance(); break;
 			case CausticBitePvE: Game.Hit(target!, 150, name); ApplyDot(target!, StatusID.CausticBite); HawksEyeChance(); break;
@@ -236,14 +253,14 @@ public sealed class Bard : IJob
 				break;
 			case ApexArrowPvE:
 				Game.Annotate($"{Gauge.SoulVoice} SV");
-				HitAll(7.2f * Gauge.SoulVoice); // measured: ~720 at 100 Soul Voice, ~590 at 80-85
+				HitAll(7f * Gauge.SoulVoice);
 				if (Gauge.SoulVoice >= 80) p.Statuses[StatusID.BlastArrowReady] = 10f;
 				Gauge.SoulVoice = 0;
 				break;
 			case BlastArrowPvE: HitAll(700, 0.5f); p.Statuses.Remove(StatusID.BlastArrowReady); break;
-			case ResonantArrowPvE: HitAll(660, 0.5f); p.Statuses.Remove(StatusID.ResonantArrowReady); break;
+			case ResonantArrowPvE: HitAll(640, 0.5f); p.Statuses.Remove(StatusID.ResonantArrowReady); break;
 			case RadiantEncorePvE:
-				HitAll(_finaleCodas switch { 1 => 700, 2 => 900, _ => 1100 }, 0.5f); // 2 Codas not seen in the log: interpolated
+				HitAll(_finaleCodas switch { 1 => 700, 2 => 800, _ => 1100 }, 0.5f);
 				p.Statuses.Remove(StatusID.RadiantEncoreReady);
 				break;
 			case RagingStrikesPvE: p.Statuses[StatusID.RagingStrikes] = 20f; break;
@@ -264,7 +281,7 @@ public sealed class Bard : IJob
 			case MagesBalladPvE: StartSong(Song.MagesBallad); break;
 			case ArmysPaeonPvE: StartSong(Song.ArmysPaeon); break;
 			case PitchPerfectPvE:
-				Game.Hit(target!, Gauge.Repertoire switch { 1 => 100, 2 => 220, _ => 360 }, name);
+				HitAll(Gauge.Repertoire switch { 1 => 100, 2 => 220, _ => 360 }, 0.5f);
 				Gauge.Repertoire = 0;
 				break;
 			case EmpyrealArrowPvE: Game.Hit(target!, 260, name); if (Gauge.Song != Song.None) Repertoire(); break;
@@ -272,5 +289,39 @@ public sealed class Bard : IJob
 			case HeartbreakShotPvE: Game.Hit(target!, 180, name); break;
 			case RainOfDeathPvE: HitAll(100); break;
 		}
+	}
+
+	// The log on the sim's scale: each hit with its crit/DH luck swapped for the expected value, then converted to potency
+	// with the factor that makes the log's Burst Shots average 220 under the same multipliers the sim uses.
+	public List<(float T, string Name, double P)> LogPotency(Timeline t)
+	{
+		var critDamage = _critDamage;
+		var casts = t.LoggedCasts.Select(c => (T: c[0].GetSingle(), Name: c[1].GetString()!)).ToList();
+		bool Within(string name, float seconds, float at) => casts.Any(c => c.Name.Contains(name) && at >= c.T && at < c.T + seconds);
+		Song LoggedSong(float at)
+		{
+			var last = casts.LastOrDefault(c => c.T <= at && c.Name is "The Wanderer's Minuet" or "Mage's Ballad" or "Army's Paeon");
+			if (last.Name == null || at >= last.T + 45 || t.PlayerDebuffs.Any(d => d.Name == "Dead" && d.Start >= last.T && d.Start <= at)) return Song.None;
+			return last.Name switch { "The Wanderer's Minuet" => Song.WanderersMinuet, "Mage's Ballad" => Song.MagesBallad, _ => Song.ArmysPaeon };
+		}
+		// B: damage buffs, E: expected crit/DH. A hit is potency x k x B x luck; in sim units it is potency x B x E.
+		double B(float at)
+		{
+			var m = 1.0;
+			if (Within("Raging Strikes", 20, at)) m *= 1.15;
+			if (Within("Radiant Finale", 20, at)) m *= 1.06; // ponytail: assumes 3 Codas, as nearly every logged Finale had
+			if (Within("Gemdraught", 30, at)) m *= Game.PotionMultiplier;
+			if (LoggedSong(at) == Song.MagesBallad) m *= 1.01;
+			foreach (var b in t.PartyBuffs) if (at >= b.Start && at < b.End) m *= b.Mult;
+			return m;
+		}
+		// Logged hits lack target IDs, so target-specific Chain cannot be restored here; sim comparisons use identical scoring.
+		double E(float at) => (1 + Math.Min(1, _critRate + (LoggedSong(at) == Song.WanderersMinuet ? 0.02 : 0)
+			+ (t.PartyBuffs.Any(b => b.Name == "Battle Litany" && at >= b.Start && at < b.End) ? 0.1 : 0)) * (critDamage - 1))
+			* (1 + 0.25 * (_dhRate + (Within("Battle Voice", 20, at) ? 0.2 : 0) + (LoggedSong(at) == Song.ArmysPaeon ? 0.03 : 0)));
+		var hits = t.LoggedHits.Select(h => (T: h[0].GetSingle(), Name: h[1].GetString()! + (h[5].GetBoolean() ? " (DoT)" : ""),
+			Base: h[2].GetDouble() / (h[3].GetBoolean() ? critDamage : 1) / (h[4].GetBoolean() ? 1.25 : 1))).ToList();
+		var k = hits.Where(h => h.Name == "Burst Shot").Average(h => h.Base / (220 * B(h.T)));
+		return hits.Select(h => (h.T, h.Name, h.Base * E(h.T) / k)).ToList();
 	}
 }

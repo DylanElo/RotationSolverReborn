@@ -7,11 +7,11 @@ using SimDateTime = RotationSolver.RebornRotations.DateTime;
 
 namespace FightSim;
 
-public enum AoeShape { Single, Self, Cone, CircleOnTarget }
+public enum AoeShape { Single, Self, Cone, CircleOnTarget, Line }
 
-/// <summary>Game facts for one action. Recast 0 on a GCD means it rolls the GCD only.</summary>
+/// <summary>Game facts for one action. Recast 0 on a GCD means it rolls the GCD only; GcdRecast is a fixed GCD of its own (Blazing Shot).</summary>
 public sealed record ActionSpec(ActionID Id, uint GameId, bool IsGcd, int Level = 1, float Recast = 0, int MaxCharges = 1,
-	AoeShape Shape = AoeShape.Single, float Radius = 0, ActionID? Group = null);
+	AoeShape Shape = AoeShape.Single, float Radius = 0, ActionID? Group = null, float GcdRecast = 0);
 
 /// <summary>A recast group as the game's RecastDetail reports it: zero while ready, Total = recast x charges while cooling.</summary>
 public sealed class Cooldown
@@ -30,6 +30,11 @@ public sealed class Cooldown
 public interface IJob
 {
 	string Abbr { get; }
+	/// <summary>Auto-attack potency and delay, measured from the log's Shot hits.</summary>
+	float AutoPotency { get; }
+	float AutoDelay { get; }
+	/// <summary>The log's hits on the sim's potency scale (expected crit/DH, same multipliers as the sim), for the Log column.</summary>
+	List<(float T, string Name, double P)> LogPotency(Timeline t);
 	ActionSpec Spec(ActionID id);
 	ActionID Adjusted(ActionID id);
 	bool GameAllows(ActionID id);
@@ -45,23 +50,26 @@ public interface IJob
 public sealed record Timeline(
 	string Source, string Player, float Duration, List<TimelineActor> Actors, List<float[]> PlayerPos, List<JsonElement[]> PlayerTarget,
 	List<PartyBuff> PartyBuffs, List<Debuff> PlayerDebuffs, List<PlanWindow> PlanWindows, List<JsonElement[]> LoggedCasts, double LoggedDamage,
-	List<EnemyCast>? EnemyCasts, List<JsonElement[]> LoggedHits, Dictionary<string, float> Stats)
+	List<EnemyCast>? EnemyCasts, List<JsonElement[]> LoggedHits, Dictionary<string, float> Stats,
+	string? Job = null, List<string>? PartyJobs = null, List<EnemyDebuff>? EnemyDebuffs = null, bool PlanHiddenAcrossKills = false)
 {
 	public static Timeline Load(string path) => JsonSerializer.Deserialize<Timeline>(File.ReadAllText(path), new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
 }
 
-public sealed record TimelineActor(string Key, uint BaseId, string Name, List<float[]> Spans, List<float[]> Hp, List<float[]> Pos, float? Death, float Taken = 1f);
+public sealed record TimelineActor(string Key, uint BaseId, string Name, List<float[]> Spans, List<float[]> Hp, List<float[]> Pos, float? Death, float Taken = 1f, float? PresentFrom = null);
 public sealed record PartyBuff(string Name, string Job, float Mult, float Start, float End);
 public sealed record Debuff(string Name, float Start, float End);
 public sealed record PlanWindow(float Start, float End, bool Potion);
 public sealed record EnemyCast(string Key, uint Id, float Start, float Duration);
+public sealed record EnemyDebuff(string Key, string Name, string Job, float Mult, float Start, float End);
 
 /// <summary>An enemy from the timeline: targetable spans, HP and position replayed from the log.</summary>
 public sealed class Enemy(TimelineActor actor, ulong objectId)
 {
 	public TimelineActor Actor { get; } = actor;
 	public IBattleChara Chara { get; } = new() { GameObjectId = objectId, BaseId = actor.BaseId, Name = actor.Name, HealthRatio = () => Sample(actor.Hp, 1f) };
-	public bool Targetable => Actor.Spans.Any(s => Game.Now >= s[0] && Game.Now < s[1]) && Chara.GetHealthRatio() > 0f;
+	public bool Present => Actor.PresentFrom is not { } since || Game.Now >= since;
+	public bool Targetable => Present && Actor.Spans.Any(s => Game.Now >= s[0] && Game.Now < s[1]) && Chara.GetHealthRatio() > 0f;
 
 	public (float X, float Y) Position => (Sample(Actor.Pos, 1, 100f), Sample(Actor.Pos, 2, 100f));
 
@@ -88,7 +96,18 @@ public sealed class Enemy(TimelineActor actor, ulong objectId)
 /// </summary>
 public static class Game
 {
-	public const int Level = 100;
+	public static int Level { get; set; } = 100;
+	// Optional external-boundary inputs for selector regressions; whole-fight replay keeps its measured defaults.
+	public static bool IsInFRU { get; set; } = true;
+	public static (float Start, float End)? ForecastOverride { get; set; }
+	public static float? TtkOverride { get; set; }
+	public static Func<IBattleChara, float>? TargetTtkOverride { get; set; }
+	public static float? AverageTtkOverride { get; set; }
+	public static IBattleChara? CurrentTargetOverride { get; set; }
+	public static Func<ulong, IBattleChara?>? ObjectLookupOverride { get; set; }
+	public static IBattleChara? FindObject(ulong id) => ObjectLookupOverride is { } lookup
+		? lookup(id) : CurrentObjects.FirstOrDefault(c => c.GameObjectId == id);
+	public static bool AutoBurst { get; set; } = true;
 	public const float AnimationLockSeconds = 0.65f; // 0.6s lock + ~50ms latency
 	public const float ItemLockSeconds = 1.1f;
 	public const float PotionRecast = 270f;
@@ -100,11 +119,15 @@ public static class Game
 	public static Random Rng { get; private set; } = new(0);
 	public static IBattleChara Player { get; private set; } = new();
 	public static List<Enemy> Enemies { get; private set; } = [];
+	public static IEnumerable<IBattleChara>? CurrentObjectsOverride { get; set; }
+	public static IEnumerable<IBattleChara> CurrentObjects => CurrentObjectsOverride ?? Enemies.Where(e => e.Present).Select(e => e.Chara);
 	public static List<IBattleChara> Hostiles { get; private set; } = [];
 	public static IBattleChara? Target { get; private set; }
 	public static List<string> PartyJobs { get; private set; } = [];
 
 	public static float BaseGcd { get; set; } = 2.48f;
+	/// <summary>RSR's Action6Head (per job in RotationSolver.json): how far into the GCD it commits the next one, as a fraction of it.</summary>
+	public static float ActionAhead { get; set; } = 0.25f;
 	private static float _gcdReadyAt, _gcdTotal, _lockUntil, _lastActionAt = -1e9f, _potionReadyAt;
 	public static float GcdTotal => GcdRemain > 0 ? _gcdTotal : (float)Math.Round(BaseGcd * Job.HasteFactor, 2);
 	public static float GcdRemain => Math.Max(0f, _gcdReadyAt - Now);
@@ -125,7 +148,7 @@ public static class Game
 	private static readonly Cooldown GcdGroup = new();
 	private static readonly Queue<(SimDateTime, Dictionary<ulong, float>?)> HpRecord = new();
 	private static float _hpRecordedAt = -1e9f;
-	private static List<float[]> _downtimes = [];
+	private static DowntimeForecast _downtimeForecast = null!;
 
 	public static IEnumerable<(SimDateTime, Dictionary<ulong, float>?)> RecordedHP => HpRecord;
 
@@ -136,6 +159,16 @@ public static class Game
 
 	public static void Reset(Timeline timeline, IJob job, int seed)
 	{
+		Level = 100;
+		IsInFRU = true;
+		ForecastOverride = null;
+		TtkOverride = null;
+		TargetTtkOverride = null;
+		AverageTtkOverride = null;
+		CurrentTargetOverride = null;
+		ObjectLookupOverride = null;
+		CurrentObjectsOverride = null;
+		AutoBurst = true;
 		Timeline = timeline;
 		Job = job;
 		Rng = new Random(seed);
@@ -143,7 +176,8 @@ public static class Game
 		Player = new IBattleChara { GameObjectId = 1, Name = timeline.Player };
 		ulong id = 100;
 		Enemies = timeline.Actors.Select(a => new Enemy(a, id++)).ToList();
-		PartyJobs = timeline.PartyBuffs.Select(b => b.Job).Distinct().ToList();
+		// Older (BRD-only) timelines have no party list: the jobs seen buffing, plus the player's own.
+		PartyJobs = timeline.PartyJobs ?? timeline.PartyBuffs.Select(b => b.Job).Distinct().Append(job.Abbr).Distinct().ToList();
 		_gcdReadyAt = _gcdTotal = _lockUntil = _potionReadyAt = _nextAuto = 0f;
 		_targetCursor = 0;
 		_lastActionAt = -1e9f;
@@ -154,7 +188,7 @@ public static class Game
 		Casts.Clear();
 		DamageByAction.Clear();
 		DamageEvents.Clear();
-		_downtimes = Downtimes(timeline);
+		_downtimeForecast = new DowntimeForecast(timeline);
 		_castsByKey = (timeline.EnemyCasts ?? []).GroupBy(c => c.Key).ToDictionary(g => g.Key, g => g.ToList());
 		_ttkCache.Clear();
 		StartAt = timeline.LoggedCasts.Count > 0 ? timeline.LoggedCasts[0][0].GetSingle() : 0f;
@@ -162,23 +196,8 @@ public static class Game
 		Refresh();
 	}
 
-	/// <summary>Seconds with no attackable enemy (merged spans of every actor), as BossMod would report downtime.</summary>
-	private static List<float[]> Downtimes(Timeline t)
-	{
-		var spans = t.Actors.SelectMany(a => a.Spans).OrderBy(s => s[0]).ToList();
-		var result = new List<float[]>();
-		var covered = 0f;
-		foreach (var s in spans)
-		{
-			if (s[0] > covered + 1f) result.Add([covered, s[0]]);
-			covered = Math.Max(covered, s[1]);
-		}
-		if (covered < t.Duration - 1f) result.Add([covered, t.Duration]);
-		return result;
-	}
-
-	public static float DowntimeIn => _downtimes.FirstOrDefault(d => d[1] > Now) is { } d ? Math.Max(0f, d[0] - Now) : float.MaxValue;
-	public static float DowntimeEndIn => _downtimes.FirstOrDefault(d => d[1] > Now) is { } d ? d[1] - Now : float.MaxValue;
+	public static float DowntimeIn => ForecastOverride?.Start ?? _downtimeForecast.At(Now).Start;
+	public static float DowntimeEndIn => ForecastOverride?.End ?? _downtimeForecast.At(Now).End;
 
 	public static Cooldown Cooldown(ActionID id)
 	{
@@ -202,7 +221,7 @@ public static class Game
 	// ponytail: hitboxes are not in the log; FRU bosses are ~5y, adds ~1y. Change here if a fight disagrees.
 	private static float Hitbox(IBattleChara c) => c.BaseId is 0x459B or 0x459F or 0x45A7 or 0x45A9 or 0x45AB or 0x45AF ? 5f : 1f;
 
-	/// <summary>Who an AoE reaches: anything whose hitbox edge is inside it (a circle on the target, or a 90 degree cone from the player).</summary>
+	/// <summary>Who an AoE reaches: circles and lines, or the production target resolver's 120 degree cone with hitbox adjustment.</summary>
 	public static IBattleChara[] AffectedBy(ActionSpec spec, IBattleChara target)
 	{
 		var main = Enemies.FirstOrDefault(e => e.Chara == target);
@@ -215,27 +234,46 @@ public static class Game
 			var (x, y) = e.Position;
 			var r = Hitbox(e.Chara);
 			if (spec.Shape == AoeShape.CircleOnTarget) return Math.Sqrt((x - tx) * (x - tx) + (y - ty) * (y - ty)) <= spec.Radius + r;
-			var d = Math.Sqrt((x - px) * (x - px) + (y - py) * (y - py));
-			return d - r <= spec.Radius && Angle(px, py, tx, ty, x, y) <= 45 + Math.Atan2(r, Math.Max(d, 0.1)) * 180 / Math.PI;
+			if (spec.Shape == AoeShape.Line)
+			{
+				var len = Math.Max(Math.Sqrt((tx - px) * (tx - px) + (ty - py) * (ty - py)), 0.1);
+				var along = ((x - px) * (tx - px) + (y - py) * (ty - py)) / len;
+				var across = Math.Abs((x - px) * (ty - py) - (y - py) * (tx - px)) / len;
+				return along >= -r && along <= spec.Radius + r && across <= 2 + r;
+			}
+			var dx = tx - px;
+			var dy = ty - py;
+			var aimLength = Math.Sqrt(dx * dx + dy * dy);
+			double ex = x - px;
+			double ey = y - py;
+			var distance = Math.Sqrt(ex * ex + ey * ey);
+			if (distance - r > spec.Radius) return false;
+			if (aimLength <= 0.001) return true;
+			// ActionTargetInfo.GetCanTarget widens by the main target's hitbox along the aim direction.
+			const double halfAngle = Math.PI / 3;
+			var adjustment = Hitbox(target) / Math.Sin(halfAngle);
+			ex += dx / aimLength * adjustment;
+			ey += dy / aimLength * adjustment;
+			var adjustedLength = Math.Sqrt(ex * ex + ey * ey);
+			return adjustedLength <= 0.001 || (dx * ex + dy * ey) / (aimLength * adjustedLength) >= Math.Cos(halfAngle);
 		}).Select(e => e.Chara).OrderByDescending(c => c == target).ToArray();
 	}
 
-	private static double Angle(float px, float py, float tx, float ty, float x, float y)
-	{
-		var a = Math.Atan2(ty - py, tx - px);
-		var b = Math.Atan2(y - py, x - px);
-		var d = Math.Abs(a - b) * 180 / Math.PI;
-		return d > 180 ? 360 - d : d;
-	}
-
+	/// <summary>
+	/// BossMod's plan entries in the look-ahead. Its timeline cannot see past a kill-gated phase end (Fatebreaker's death,
+	/// the P4 pair's): a window in the next phase stays hidden until that phase is entered, at the preceding kill. Timelines
+	/// written before this was modelled (the BRD ones validated without it) say nothing and see every window.
+	/// </summary>
 	public static List<BMRPlannedAction> PlannedActions(float lookAhead) => Timeline.PlanWindows
-		.Where(w => w.End > Now && w.Start - Now <= lookAhead)
-		.Select(w => new BMRPlannedAction("BossMod.Autorotation.ClassBRDUtility", "Burst", w.Potion ? "WindowWithPotion" : "Window", 0, 0, w.Start - Now, w.End - Now, 0, 0))
+		.Where(w => w.End > Now && w.Start - Now <= lookAhead && (!Timeline.PlanHiddenAcrossKills || _downtimeForecast.IsInCurrentPhase(Now, w.Start)))
+		.Select(w => new BMRPlannedAction($"BossMod.Autorotation.Class{Job.Abbr}Utility", "Burst", w.Potion ? "WindowWithPotion" : "Window", 0, 0, w.Start - Now, w.End - Now, 0, 0))
 		.ToList();
 
 	// ObjectHelper.GetTTK (cached per step: the record only changes once a second)
 	public static float TimeToKill(IBattleChara chara)
 	{
+		if (TargetTtkOverride is { } targetTtk) return targetTtk(chara);
+		if (TtkOverride is float ttk) return ttk;
 		if (_ttkCachedAt != Now) { _ttkCache.Clear(); _ttkCachedAt = Now; }
 		if (_ttkCache.TryGetValue(chara.GameObjectId, out var cached)) return cached;
 		return _ttkCache[chara.GameObjectId] = ComputeTimeToKill(chara);
@@ -269,6 +307,7 @@ public static class Game
 	{
 		get
 		{
+			if (AverageTtkOverride is float average) return average;
 			var ttks = Hostiles.Select(TimeToKill).Where(t => !float.IsNaN(t)).ToList();
 			return ttks.Count > 0 ? ttks.Average() : 0f;
 		}
@@ -301,14 +340,12 @@ public static class Game
 	private static float _nextAuto;
 	private static int _targetCursor;
 	private static Enemy? EnemyByKey(string? key) => key == null ? null : Enemies.Find(e => e.Actor.Key == key);
-	private const float AutoDelay = 3.04f;
-	private const float AutoPotency = 68f; // measured from the log's Shot hits against Burst Shot = 220
 
 	private static void AutoAttack()
 	{
 		if (Now < _nextAuto || Target == null || Locked) return;
-		_nextAuto = Now + AutoDelay;
-		Hit(Target, AutoPotency, "Shot");
+		_nextAuto = Now + Job.AutoDelay;
+		Hit(Target, Job.AutoPotency, "Shot");
 	}
 
 	private static void Refresh()
@@ -345,6 +382,10 @@ public static class Game
 			var id = d.Name switch { "Return" => StatusID.Return, "Stun" => StatusID.Stun_4163, "Doom" => StatusID.Doom, _ => StatusID.None };
 			if (id != StatusID.None && Now >= d.Start && Now < d.End) Player.Statuses[id] = d.End - Now;
 		}
+		foreach (var d in Timeline.EnemyDebuffs ?? [])
+		{
+			if (Now >= d.Start && Now < d.End && EnemyByKey(d.Key) is { } e && Enum.TryParse<StatusID>(d.Name.Replace(" ", ""), out var id)) e.Chara.Statuses[id] = d.End - Now;
+		}
 
 		if (Now - _hpRecordedAt >= 1f && Hostiles.Count > 0) // TargetUpdater.UpdateTimeToKill: 1/s, 240 kept
 		{
@@ -372,7 +413,7 @@ public static class Game
 		var spec = Job.Spec(Job.Adjusted(baseAction.ActionId));
 		if (spec.IsGcd)
 		{
-			_gcdTotal = (float)Math.Round(BaseGcd * Job.HasteFactor, 2);
+			_gcdTotal = spec.GcdRecast > 0 ? spec.GcdRecast : (float)Math.Round(BaseGcd * Job.HasteFactor, 2);
 			_gcdReadyAt = Now + _gcdTotal;
 			LastGcd = action;
 		}
@@ -388,7 +429,7 @@ public static class Game
 	}
 
 	/// <summary>Expected damage now, in potency units: party buffs from the log times the job's own multiplier.</summary>
-	public static float Multiplier()
+	public static float Multiplier(IBattleChara? target = null)
 	{
 		var m = Job.SelfMultiplier();
 		foreach (var b in Timeline.PartyBuffs)
@@ -397,6 +438,13 @@ public static class Game
 		}
 		if (Player.HasStatus(true, StatusID.Medicated)) m *= PotionMultiplier;
 		if (Timeline.PlayerDebuffs.Any(d => d.Name == "Weakness" && Now >= d.Start && Now < d.End)) m *= 0.75f; // measured: 0.76 after a raise
+		if (target != null)
+		{
+			if (Job is Bard bard) m *= bard.TargetCritMultiplier(target);
+			var enemy = Enemies.Find(e => e.Chara == target);
+			foreach (var d in Timeline.EnemyDebuffs ?? [])
+				if (d.Key == enemy?.Actor.Key && Now >= d.Start && Now < d.End) m *= d.Mult;
+		}
 		return m;
 	}
 
@@ -406,7 +454,8 @@ public static class Game
 	public static void Hit(IBattleChara target, float potency, string name, float? snapshot = null)
 	{
 		if (!Hostiles.Contains(target)) return;
-		var damage = potency * (snapshot ?? Multiplier()) * (Enemies.Find(e => e.Chara == target)?.Actor.Taken ?? 1f);
+		var enemy = Enemies.Find(e => e.Chara == target);
+		var damage = potency * (snapshot ?? Multiplier(target)) * (enemy?.Actor.Taken ?? 1f);
 		if (snapshot == null && name != "Shot" && Casts.Count > 0 && Casts[^1].Time == Now) Casts[^1] = Casts[^1] with { Damage = Casts[^1].Damage + damage };
 		DamageByAction[name] = DamageByAction.GetValueOrDefault(name) + damage;
 		DamageEvents.Add((Now, damage));
