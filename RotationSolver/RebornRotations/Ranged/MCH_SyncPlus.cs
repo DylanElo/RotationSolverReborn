@@ -604,11 +604,11 @@ public class MCH_SyncPlus : MCH_Reborn
 	/// <summary>Last seconds of the fight's final kill (FinalKillIn): nothing carries past it, so nothing is banked.</summary>
 	internal const float FinalKillDumpWindow = 15f;
 
-	/// <summary>Enough for a couple of stored hits before the early Detonator; below it Wildfire would only ghost.</summary>
-	private const float FinalWildfireMinimum = 5f;
+	/// <summary>Hypercharge and one or two Blazing Shots still land before the early Detonator; below it Wildfire would only ghost.</summary>
+	private const float FinalWildfireMinimum = 4f;
 
-	/// <summary>Enough for Queen to arrive and Overdrive into Pile Bunker + Crowned Collider before the boss dies.</summary>
-	private const float FinalQueenLifetime = 6.5f;
+	/// <summary>Summon, a weave or two, then Overdrive: Crowned Collider lands 2.8s after it (logs 0.5-2.8s).</summary>
+	private const float FinalQueenLifetime = 5.5f;
 
 	private bool FinalKillWithin(float seconds) => FinalKillIn <= seconds;
 
@@ -716,8 +716,8 @@ public class MCH_SyncPlus : MCH_Reborn
 	/// <summary>Same target-life guard as Wildfire, unless another enemy is left to take the Hypercharge (M3 logs: Barrel at the kill).</summary>
 	protected override bool ShouldHoldBarrel => (TargetEndsBeforeWildfirePayload || TargetDying)
 		&& !AllHostileTargets.Any(t => t != SchedulerTarget && !t.IsDying())
-		// Final kill: Full Metal Field lands the next GCD and the free Hypercharge after it.
-		&& !(FinalKillIn >= GCDTime(1) + 1f);
+		// Final kill: Full Metal Field lands on the next GCD, at most one GCD away.
+		&& !(FinalKillIn >= GCDTime(1));
 
 	/// <summary>
 	/// FRU P3/P4: Barrel goes on cooldown ahead of the buffs so it is back for the CT downtime Barrel (top MCH logs: P3 ~8:10,
@@ -727,7 +727,9 @@ public class MCH_SyncPlus : MCH_Reborn
 	/// </summary>
 	protected override bool ShouldUseBarrelOnCooldown => IsBurst && DataCenter.IsInFRU
 		&& SchedulerTarget is { } target && MCHSyncPlusPolicy.BarrelOnCooldownPhase(target.BaseId)
-		&& !ObjectiveBanked && !DowntimeWithin(WildfirePayloadWindow);
+		&& !ObjectiveBanked && !DowntimeWithin(WildfirePayloadWindow)
+		// Final kill: Barrel without waiting for a Wildfire commit, while Full Metal Field still lands.
+		|| IsBurst && FinalKillIn >= GCDTime(1) && FinalKillWithin(FinalKillDumpWindow);
 
 	private float RequiredQueenLifetime => Math.Max(QueenExecutionWindow, AutomatonQueenPvE.EnoughLevel
 		? AutomatonQueenPvE.Config.TimeToKill : RookAutoturretPvE.Config.TimeToKill);
@@ -1201,6 +1203,13 @@ public class MCH_SyncPlus : MCH_Reborn
 		{
 			act = null;
 			return false;
+		}
+
+		// Final kill: no Full Metal Field to wait for. Wildfire with the Heat for its Hypercharge; Detonator handles the death.
+		if (FinalKillIn is >= FinalWildfireMinimum and <= FinalKillDumpWindow && ShouldUseWildfire && (HasHeatForHypercharge || IsOverheated)
+			&& WildfirePvE.CanUse(out act, skipTTKCheck: true) && WildfireResolvedTargetAllowed)
+		{
+			return true;
 		}
 
 		if (MCHSyncPlusPolicy.ShouldWeaveWildfireBeforeFullMetal(

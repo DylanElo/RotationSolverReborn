@@ -1117,8 +1117,9 @@ public class BRD_Reborn : BardRotation
 			return false;
 		}
 
-		// Final kill: Apex out-hits a Burst Shot from ~40 Soul Voice; at 80+ fire it while Blast Arrow still fits.
-		if (SoulVoice >= 40 && FinalKillIn <= (SoulVoice >= 80 ? GCDTime(3) : GCDTime(1)) + 0.5f)
+		// Final kill: Apex out-hits a Burst Shot from ~40 Soul Voice; at 80+ fire it while Blast Arrow still fits. Two GCDs, not one:
+		// the next GCD is picked ahead of time, so a last-GCD-only window was never hit.
+		if (SoulVoice >= 40 && FinalKillIn <= (SoulVoice >= 80 ? GCDTime(3) : GCDTime(2)) + 0.5f)
 		{
 			return true;
 		}

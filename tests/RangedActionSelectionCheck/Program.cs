@@ -46,7 +46,7 @@ var nativeBard = "class NativeBardDefaults {" + Members(bardBase, "BardRotation"
     + "} a.Setting=s; if(s.CreateConfig!=null)a.Config=s.CreateConfig(); } }\n";
 var production = nativeBard + "class Brd : Boundary {" + brdConstants + Members(brd, "BRD_Reborn", "GeneralGCD", "EmergencyAbility", "AttackAbility", "FinalKillDump", "ShouldReserveP4BurstWeave", "ShouldReserveSongWeave", "ReserveFruSongWeave", "TwoStackPPBeforeEmpyreal", "CanUseApexArrow", "TryApplyDoT", "CanUseDoT", "DoTPaysOff", "TargetLivesForDoT", "BurstEndRefreshPays", "DotSnapshotOn", "TrackDotSnapshots", "NextDotSnapshot", "DotRefreshed", "BuffSnapshotOn", "FinaleWeight") + "}\n"
     + "class Mch : Boundary {" + Members(mch, "MCH_Reborn", "GeneralGCD", "AttackAbility", "HoldReassembleForChainSawCleave") + "}\n"
-    + "class Sync : Mch {" + Members(sync, "MCH_SyncPlus", "GeneralGCD", "AttackAbility") + "}\n"
+    + "class Sync : Mch {" + string.Join(" ", sync.DescendantNodes().OfType<ClassDeclarationSyntax>().Single(c => c.Identifier.Text == "MCH_SyncPlus").Members.OfType<FieldDeclarationSyntax>().Where(f => f.Modifiers.Any(SyntaxKind.ConstKeyword) && f.ToString().Contains(" Final")).Select(f => f.ToString())) + Members(sync, "MCH_SyncPlus", "GeneralGCD", "AttackAbility") + "}\n"
     + Whole(mch, "MCHBurstActionPolicy") + "\n" + Whole(sync, "MCHSyncPlusPolicy");
 var actions = Regex.Matches(production, @"\b\w+PvE\b").Select(m => m.Value).Distinct().Order().ToArray();
 var statuses = Regex.Matches(production, @"StatusID\.(\w+)").Select(m => m.Groups[1].Value).Distinct().ToArray();
