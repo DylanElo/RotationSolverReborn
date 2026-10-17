@@ -162,6 +162,9 @@ public class MCH_Reborn : MachinistRotation
 	/// describes for the odd-minute Queens. Default false keeps the base rotation spending on sight.
 	/// </summary>
 	protected virtual bool ShouldHoldExcavatorForBattery => false;
+
+	/// <summary>Final kill with time for a few Blazing Shots: Heat holds for Wildfire or a combo end nothing after the kill.</summary>
+	protected virtual bool FinalKillDumping => false;
 	protected virtual bool ShouldReleaseQueenAtMinimumBattery => false;
 
 	/// <summary>
@@ -511,9 +514,9 @@ public class MCH_Reborn : MachinistRotation
 
 		// Use Hypercharge if wildfire will not be up in 30 seconds or if you hit 100 heat
 		if ((!ShouldHoldFlexibleResources || Heat == 100) && !LowLevelHyperCheck && !HasReassembled
-			&& (!WildfirePvE.Cooldown.WillHaveOneCharge(30) || ShouldRecoverLostFullMetalBurst || (Heat == 100)))
+			&& (!WildfirePvE.Cooldown.WillHaveOneCharge(30) || ShouldRecoverLostFullMetalBurst || (Heat == 100) || FinalKillDumping))
 		{
-			if (MCHBurstActionPolicy.ShouldStartFlexibleHypercharge(LiveComboTime, GCDTime(5))
+			if ((MCHBurstActionPolicy.ShouldStartFlexibleHypercharge(LiveComboTime, GCDTime(5)) || FinalKillDumping)
 				&& ToolChargeSoon(out act))
 			{
 				return true;

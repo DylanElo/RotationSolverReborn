@@ -612,6 +612,8 @@ public class MCH_SyncPlus : MCH_Reborn
 
 	private bool FinalKillWithin(float seconds) => FinalKillIn <= seconds;
 
+	protected override bool FinalKillDumping => FinalKillIn is >= 3f and <= FinalKillDumpWindow;
+
 	/// <summary>Final kill: spend everything, raid buffs or not; Wildfire too while its payload still lands.</summary>
 	private MCHSyncPlusDecision? FinalKillDecision()
 		=> IsBurst && FinalKillWithin(FinalKillDumpWindow)
@@ -796,7 +798,7 @@ public class MCH_SyncPlus : MCH_Reborn
 		=> LastViableQueenWindow || MCHSyncPlusPolicy.ShouldReleaseQueenAtBatteryTarget(Battery, QueenBatteryTarget);
 
 	protected override bool ShouldHoldExcavatorForBattery
-		=> BankingTools || MCHSyncPlusPolicy.ShouldHoldExcavatorForBattery(
+		=> BankingTools || !FinalKillWithin(FinalKillDumpWindow) && MCHSyncPlusPolicy.ShouldHoldExcavatorForBattery(
 			PartyBurstActive, HasFullMetalMachinist, Battery, QueenBatteryTarget);
 
 	/// <summary>

@@ -1009,7 +1009,8 @@ public class BRD_Reborn : BardRotation
 		{
 			// A standalone Finale (CT) has no Battle Voice coming: Encore on the return's first GCDs, before P4 dies.
 			// Spend Encore before the lower-potency payloads, including when the first burst buff has already faded.
-			if (InBurstStatus || HasRagingStrikes || (HasRadiantFinale && !HasBattleVoice) || StatusHelper.PlayerWillStatusEndGCD(2, 0, true, StatusID.RadiantEncoreReady))
+			if (InBurstStatus || HasRagingStrikes || (HasRadiantFinale && !HasBattleVoice) || FinalKillIn <= FinalKillDumpWindow
+				|| StatusHelper.PlayerWillStatusEndGCD(2, 0, true, StatusID.RadiantEncoreReady))
 			{
 				return true;
 			}
