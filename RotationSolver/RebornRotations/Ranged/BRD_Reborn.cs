@@ -730,6 +730,28 @@ public class BRD_Reborn : BardRotation
 	internal static bool SuccessorBackInTime(float minuetRecast, int position)
 		=> minuetRecast + 45f * position >= 120f;
 
+	/// <summary>Last seconds of the fight's final kill: nothing carries past it, so nothing is kept for a later window.</summary>
+	internal const float FinalKillDumpWindow = 12f;
+
+	/// <summary>
+	/// Final kill: buffs still worth a GCD under them go even outside the plan, then the damage oGCDs the burst logic
+	/// holds (Sidewinder, Heartbreak charges, a partial Pitch Perfect on the last tick).
+	/// </summary>
+	private bool FinalKillDump(out IAction? act)
+	{
+		act = null;
+		var left = FinalKillIn;
+		if (!InCombat || !(left <= FinalKillDumpWindow)) return false;
+		if (left >= GCDTime(1) && (BattleVoicePvE.CanUse(out act, skipTTKCheck: true)
+			|| RadiantFinalePvE.CanUse(out act, skipTTKCheck: true)
+			|| RagingStrikesPvE.CanUse(out act, skipTTKCheck: true)
+			|| (!HasHawksEye && BarragePvE.CanUse(out act, skipTTKCheck: true)))) return true;
+		return SidewinderPvE.CanUse(out act, skipTTKCheck: true)
+			|| (left <= 3.5f && Repertoire > 0 && PitchPerfectPvE.CanUse(out act, skipAoeCheck: true, skipComboCheck: true))
+			|| HeartbreakShotPvE.CanUse(out act, usedUp: true, skipTTKCheck: true)
+			|| BloodletterPvE.CanUse(out act, usedUp: true, skipTTKCheck: true);
+	}
+
 	protected override bool AttackAbility(IAction nextGCD, out IAction? act)
 	{
 		if (InCombat && SongAbility(out act))
@@ -741,6 +763,11 @@ public class BRD_Reborn : BardRotation
 		{
 			act = null;
 			return false;
+		}
+
+		if (FinalKillDump(out act))
+		{
+			return true;
 		}
 
 		// A song starts the burst; Battle Voice already up commits the remaining buffs even during songless recovery.
@@ -1079,6 +1106,12 @@ public class BRD_Reborn : BardRotation
 		if (!ApexArrowPvE.CanUse(out act))
 		{
 			return false;
+		}
+
+		// Final kill: Apex out-hits a Burst Shot from ~40 Soul Voice; at 80+ fire it while Blast Arrow still fits.
+		if (SoulVoice >= 40 && FinalKillIn <= (SoulVoice >= 80 ? GCDTime(3) : GCDTime(1)) + 0.5f)
+		{
+			return true;
 		}
 
 		// Fresh P4 targets must not push the two-GCD Apex/Blast payload out of the active burst.

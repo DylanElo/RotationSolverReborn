@@ -15,7 +15,7 @@ class FakeAction {
 class FakeTarget {public uint BaseId;}
 class MCH_SyncPlus {
  public bool InCombat=true,IsBurst=true,ReserveBurst,ObjectiveBanked,PartyBurstActive,FullPartyBurstActive;
- public float EncounterTime=60,DowntimeIn=float.MaxValue,SecondsInPartyBurst,OverlapWait=6;
+ public float FinalKillIn=float.NaN,EncounterTime=60,DowntimeIn=float.MaxValue,SecondsInPartyBurst,OverlapWait=6;
  public bool TimelineEnabled=true,BMRActive,HasPartyBurstSources=true,AutomaticDungeon,TargetDying,TargetEndsBeforeWildfirePayload;
  public bool IsCurrentTargetBoss=true,WildfireTargetAllowed=true,_dungeonBossEncounter;
  public bool PaddingFatebreaker;

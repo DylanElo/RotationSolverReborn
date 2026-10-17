@@ -616,6 +616,10 @@ namespace RotationSolver.Basic.Rotations
 		public static float CombatTime => Game.Now;
 		public static float BMRDowntimeIn => DataCenter.BMRNextDowntimeIn;
 		public static float BMRDowntimeEndIn => DataCenter.BMRNextDowntimeEndIn;
+		// CustomRotation_OtherInfo.FinalKillIn
+		public static float FinalKillIn => HostileTarget is { } t && t.IsBossFromIcon() && (!DataCenter.IsInFRU || t.BaseId == 0x45AF)
+			&& t.GetTTK() is var ttk && ttk >= 0f
+			&& (DataCenter.IsInFRU || !(BMRDowntimeIn is > 0f and < float.MaxValue && BMRDowntimeIn <= ttk + 5f)) ? ttk : float.NaN;
 		protected static IEnumerable<IBattleChara> AllTargets => DataCenter.AllTargets;
 		public static bool HasHostilesInRange => DataCenter.HasHostilesInRange;
 		public static bool HasHostilesInMaxRange => DataCenter.HasHostilesInMaxRange;

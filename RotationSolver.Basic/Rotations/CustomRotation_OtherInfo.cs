@@ -1231,6 +1231,22 @@ public partial class CustomRotation
 		=> BMRActive && BMRDowntimeIn is > 0f and < float.MaxValue && BMRDowntimeIn <= seconds;
 
 	/// <summary>
+	/// Seconds until the targeted boss dies when nothing follows it, so nothing is worth keeping: FRU's Pandora, or
+	/// elsewhere a boss whose death BossMod puts no downtime in front of. NaN otherwise.
+	/// </summary>
+	// ponytail: outside FRU any boss death counts as final unless BossMod knows a downtime first; a multi-phase fight
+	// without a BossMod module would need its own phase table like FRU's.
+	public static float FinalKillIn => FinalKill(HostileTarget, DataCenter.IsInFRU, BMRDowntimeIn);
+
+	internal static float FinalKill(IBattleChara? target, bool inFru, float downtimeIn)
+	{
+		if (target == null || !target.IsBossFromIcon() || (inFru && target.BaseId != 0x45AF)) return float.NaN;
+		var ttk = target.GetTTK();
+		if (!(ttk >= 0f)) return float.NaN;
+		return !inFru && downtimeIn is > 0f and < float.MaxValue && downtimeIn <= ttk + 5f ? float.NaN : ttk;
+	}
+
+	/// <summary>
 	/// True when BMR reports a vulnerability window within the specified seconds.
 	/// Always false when BMR is inactive (safe fallback).
 	/// </summary>

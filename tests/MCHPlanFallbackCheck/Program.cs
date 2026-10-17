@@ -19,6 +19,7 @@ string Member(CompilationUnitSyntax source, string owner, string name)
     var member = source.DescendantNodes().OfType<ClassDeclarationSyntax>().Single(c => c.Identifier.Text == owner).Members.Single(m => m switch {
         PropertyDeclarationSyntax p => p.Identifier.Text == name,
         MethodDeclarationSyntax f => f.Identifier.Text == name,
+        FieldDeclarationSyntax d => d.Declaration.Variables.Any(v => v.Identifier.Text == name),
         _ => false
     });
     var text = member.ToString();
@@ -29,7 +30,7 @@ string Member(CompilationUnitSyntax source, string owner, string name)
 var planClass = plan.DescendantNodes().OfType<ClassDeclarationSyntax>().Single(c => c.Identifier.Text == "MCH_Plan").WithAttributeLists(default).ToString().Replace("public sealed class", "sealed class");
 var production = planClass + string.Join("\n", new[] { "MCHPlanWindow", "MCHPlanSnapshot", "MCHPlanScheduler" }.Select(n => Type(plan, n)))
     + string.Join("\n", new[] { "MCHSyncPlusPlan", "MCHSyncPlusBurstGate", "MCHSyncPlusResourcePlan", "MCHSyncPlusDowntimeAction", "MCHSyncPlusDecision", "MCHSyncPlusSnapshot", "MCHSyncPlusScheduler" }.Select(n => Type(sync, n)));
-var methods = string.Join("\n", new[] { "Decision", "SynchronizePartyBurst", "TimelineAvailable", "ShouldUseWildfire", "ShouldCommitPersonalBurst", "ShouldUseBarrelOnCooldown" }.Select(n => Member(sync, "MCH_SyncPlus", n)));
+var methods = string.Join("\n", new[] { "Decision", "SynchronizePartyBurst", "TimelineAvailable", "ShouldUseWildfire", "ShouldCommitPersonalBurst", "ShouldUseBarrelOnCooldown", "FinalKillDecision", "FinalKillWithin", "FinalKillDumpWindow", "FinalWildfireMinimum" }.Select(n => Member(sync, "MCH_SyncPlus", n)));
 var policy = "static class MCHSyncPlusPolicy {" + string.Join("\n", new[] { "ShouldUseWildfire", "StableDecisionReason", "BarrelOnCooldownPhase", "ShouldUseDowntimeBarrel" }.Select(n => Member(sync, "MCHSyncPlusPolicy", n))) + "}"
     + "static class MCHBurstActionPolicy {" + Member(mch,"MCHBurstActionPolicy","ShouldUseWildfireAroundFullMetal") + "}";
 var attack = mch.DescendantNodes().OfType<ClassDeclarationSyntax>().Single(c => c.Identifier.Text == "MCH_Reborn").Members.OfType<MethodDeclarationSyntax>().Single(m => m.Identifier.Text == "AttackAbility");

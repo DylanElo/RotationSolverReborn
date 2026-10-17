@@ -44,7 +44,7 @@ var nativeBard = "class NativeBardDefaults {" + Members(bardBase, "BardRotation"
     + " public static void Apply(FakeAction a) { var s=a.Setting; switch(a.ID){"
     + string.Join("", nativeBardActions.Select(a => $"case ActionID.{a}: Modify{a}(ref s); break;"))
     + "} a.Setting=s; if(s.CreateConfig!=null)a.Config=s.CreateConfig(); } }\n";
-var production = nativeBard + "class Brd : Boundary {" + brdConstants + Members(brd, "BRD_Reborn", "GeneralGCD", "EmergencyAbility", "AttackAbility", "ShouldReserveP4BurstWeave", "ShouldReserveSongWeave", "ReserveFruSongWeave", "TwoStackPPBeforeEmpyreal", "CanUseApexArrow", "TryApplyDoT", "CanUseDoT", "DoTPaysOff", "TargetLivesForDoT", "BurstEndRefreshPays", "DotSnapshotOn", "TrackDotSnapshots", "NextDotSnapshot", "DotRefreshed", "BuffSnapshotOn", "FinaleWeight") + "}\n"
+var production = nativeBard + "class Brd : Boundary {" + brdConstants + Members(brd, "BRD_Reborn", "GeneralGCD", "EmergencyAbility", "AttackAbility", "FinalKillDump", "ShouldReserveP4BurstWeave", "ShouldReserveSongWeave", "ReserveFruSongWeave", "TwoStackPPBeforeEmpyreal", "CanUseApexArrow", "TryApplyDoT", "CanUseDoT", "DoTPaysOff", "TargetLivesForDoT", "BurstEndRefreshPays", "DotSnapshotOn", "TrackDotSnapshots", "NextDotSnapshot", "DotRefreshed", "BuffSnapshotOn", "FinaleWeight") + "}\n"
     + "class Mch : Boundary {" + Members(mch, "MCH_Reborn", "GeneralGCD", "AttackAbility", "HoldReassembleForChainSawCleave") + "}\n"
     + "class Sync : Mch {" + Members(sync, "MCH_SyncPlus", "GeneralGCD", "AttackAbility") + "}\n"
     + Whole(mch, "MCHBurstActionPolicy") + "\n" + Whole(sync, "MCHSyncPlusPolicy");

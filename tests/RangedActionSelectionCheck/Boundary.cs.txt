@@ -63,7 +63,7 @@ class Boundary {
  public bool HasFullMetalMachinist,HasWildfire,ShouldCommitPersonalBurst,ShouldUseBarrelOnCooldown,ShouldHoldBarrel,ShouldUseWildfire;
  public bool CanLateWeave,ShouldRecoverLostFullMetalBurst,HasHeatForHypercharge,WildfireResolvedTargetAllowed=true,ShouldHoldExcavatorForBattery,HasExcavatorReady,ShouldUseFullMetalField,BioMove,IsMoving;
  public bool UnclaimedBarrelBuffs,PostFullMetalWildfirePayloadPending,DelayFullMetalForLeadingWildfire,PartyBurstActive,CanStartWildfirePayload;
- public float SoulVoice,SoulVoiceConfig=100,BMRDowntimeIn=1000,WeaponRemain=1,WildfireLateWeaveWindow=.8f,WildfirePayloadWindow=10,LiveComboTime,Heat;
+ public float FinalKillIn=float.NaN,SoulVoice,SoulVoiceConfig=100,BMRDowntimeIn=1000,WeaponRemain=1,WildfireLateWeaveWindow=.8f,WildfirePayloadWindow=10,LiveComboTime,Heat;
  public float _hyperchargeStallStartedAt=-1,MaximumHyperchargeStall=2;
  public bool InBurstStatus;
  public bool HoldBurst,PartyRaidBuffUp,BurstSkipsTTK,DOTBarrage,PotionNow,PotionBeforeBurst,ReserveCtCodaWeave,ReserveCtPaeon;

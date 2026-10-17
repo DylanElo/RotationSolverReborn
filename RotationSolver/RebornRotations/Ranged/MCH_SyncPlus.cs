@@ -538,7 +538,7 @@ public class MCH_SyncPlus : MCH_Reborn
 			// mismatch is exactly what the live pull's "released because: waiting for the rest" line
 			// was: the Hold state present when the status finally appeared, not the Commit that
 			// actually fired it a frame or more earlier.
-			_decision = PlannedDecision() ?? MCHSyncPlusScheduler.Evaluate(new MCHSyncPlusSnapshot(
+			_decision = FinalKillDecision() ?? PlannedDecision() ?? MCHSyncPlusScheduler.Evaluate(new MCHSyncPlusSnapshot(
 				IsBurst,
 				ReserveBurst,
 				// Trust party buffs with buff jobs present never takes the personal-burst Commit, even when no
@@ -601,6 +601,24 @@ public class MCH_SyncPlus : MCH_Reborn
 	/// <summary>A burst decision from an authored plan; null leaves it to the scheduler. See MCH_Plan.</summary>
 	private protected virtual MCHSyncPlusDecision? PlannedDecision() => null;
 
+	/// <summary>Last seconds of the fight's final kill (FinalKillIn): nothing carries past it, so nothing is banked.</summary>
+	internal const float FinalKillDumpWindow = 15f;
+
+	/// <summary>Enough for a couple of stored hits before the early Detonator; below it Wildfire would only ghost.</summary>
+	private const float FinalWildfireMinimum = 5f;
+
+	/// <summary>Enough for Queen to arrive and Overdrive into Pile Bunker + Crowned Collider before the boss dies.</summary>
+	private const float FinalQueenLifetime = 6.5f;
+
+	private bool FinalKillWithin(float seconds) => FinalKillIn <= seconds;
+
+	/// <summary>Final kill: spend everything, raid buffs or not; Wildfire too while its payload still lands.</summary>
+	private MCHSyncPlusDecision? FinalKillDecision()
+		=> IsBurst && FinalKillWithin(FinalKillDumpWindow)
+			? new(FinalKillIn >= FinalWildfireMinimum ? MCHSyncPlusBurstGate.Commit : MCHSyncPlusBurstGate.Hold,
+				MCHSyncPlusResourcePlan.Spend, "final kill; spending everything", MCHSyncPlusDowntimeAction.Dump)
+			: null;
+
 	/// <summary>Planned potion timing; null keeps the timed second/third/fourth potion settings.</summary>
 	private protected virtual bool? PlannedPotionNow => null;
 
@@ -636,7 +654,7 @@ public class MCH_SyncPlus : MCH_Reborn
 				AutomaticDungeon,
 				_dungeonBossEncounter || IsCurrentTargetBoss,
 				// split-HP P4 bosses read 'dying' while the TTK extrapolation still says >10s (logs: a 0-damage Wildfire)
-				TargetEndsBeforeWildfirePayload || TargetDying,
+				(TargetEndsBeforeWildfirePayload || TargetDying) && !(FinalKillIn >= FinalWildfireMinimum),
 				WildfireTargetAllowed);
 		}
 	}
@@ -695,7 +713,9 @@ public class MCH_SyncPlus : MCH_Reborn
 
 	/// <summary>Same target-life guard as Wildfire, unless another enemy is left to take the Hypercharge (M3 logs: Barrel at the kill).</summary>
 	protected override bool ShouldHoldBarrel => (TargetEndsBeforeWildfirePayload || TargetDying)
-		&& !AllHostileTargets.Any(t => t != SchedulerTarget && !t.IsDying());
+		&& !AllHostileTargets.Any(t => t != SchedulerTarget && !t.IsDying())
+		// Final kill: Full Metal Field lands the next GCD and the free Hypercharge after it.
+		&& !(FinalKillIn >= GCDTime(1) + 1f);
 
 	/// <summary>
 	/// FRU P3/P4: Barrel goes on cooldown ahead of the buffs so it is back for the CT downtime Barrel (top MCH logs: P3 ~8:10,
@@ -709,15 +729,21 @@ public class MCH_SyncPlus : MCH_Reborn
 
 	private float RequiredQueenLifetime => Math.Max(QueenExecutionWindow, AutomatonQueenPvE.EnoughLevel
 		? AutomatonQueenPvE.Config.TimeToKill : RookAutoturretPvE.Config.TimeToKill);
+
+	/// <summary>Final kill past the full-length window: a short Queen overdriven into her finishers beats unspent Battery.</summary>
+	private bool FinalShortQueen => FinalKillIn >= FinalQueenLifetime && FinalKillIn < RequiredQueenLifetime;
+
+	private float QueenLifetimeFloor => FinalShortQueen ? FinalQueenLifetime : RequiredQueenLifetime;
 	// Battery carries into the next phase, so a phase end is never a "last chance" Queen.
-	private bool LastViableQueenWindow => (!AutomaticDungeon || _dungeonBossEncounter) && QueenTarget is { } target && MCHSyncPlusPolicy.PhaseObjective(target.BaseId) == null
+	private bool LastViableQueenWindow => (FinalShortQueen && Battery >= 50 && !IsRobotActive)
+		|| (!AutomaticDungeon || _dungeonBossEncounter) && QueenTarget is { } target && MCHSyncPlusPolicy.PhaseObjective(target.BaseId) == null
 		&& MCHSyncPlusPolicy.ShouldReleaseFinalQueen(
 		Battery, IsRobotActive, QueenTarget?.GetTTK() ?? float.NaN,
 		RequiredQueenLifetime,
 		GCDTime(2) + 1f, TimelineAvailable ? DowntimeIn : float.MaxValue);
 
 	protected override bool ShouldHardHoldQueen(int projectedBatteryGain)
-		=> MCHSyncPlusPolicy.ShouldHoldQueenForLifetime(QueenHasNextTarget ? float.NaN : QueenObjectiveIn, RequiredQueenLifetime)
+		=> MCHSyncPlusPolicy.ShouldHoldQueenForLifetime(QueenHasNextTarget ? float.NaN : QueenObjectiveIn, QueenLifetimeFloor)
 		|| (!LastViableQueenWindow && (MCHSyncPlusPolicy.ShouldHardHoldQueen(
 			TimelineAvailable,
 			DowntimeWithin(RequiredQueenLifetime))
@@ -732,13 +758,13 @@ public class MCH_SyncPlus : MCH_Reborn
 	{
 		act = null;
 		// Ignore a departing phase's global average only when an actual hostile has enough measured lifetime.
-		var knownLifetime = QueenObjectiveIn >= RequiredQueenLifetime && QueenObjectiveIn < float.MaxValue
+		var knownLifetime = QueenObjectiveIn >= QueenLifetimeFloor && QueenObjectiveIn < float.MaxValue
 			|| AllHostileTargets.Any(t => t.GameObjectId != QueenTarget?.GameObjectId && t.IsTargetable && !t.IsDying()
 				&& MCHSyncPlusPolicy.ObjectiveIn(t.GetHealthRatio(), t.GetTTK(), MCHSyncPlusPolicy.PhaseObjective(t.BaseId)) is var remaining
 				&& remaining >= RequiredQueenLifetime && remaining < float.MaxValue);
 		if (!HasAttackableQueenTarget || (QueenTarget?.IsDying() == true && !QueenHasNextTarget && !knownLifetime)
-			|| MCHSyncPlusPolicy.ShouldHoldQueenForLifetime(QueenHasNextTarget ? float.NaN : QueenObjectiveIn, RequiredQueenLifetime)
-			|| DowntimeWithin(RequiredQueenLifetime)) return false;
+			|| MCHSyncPlusPolicy.ShouldHoldQueenForLifetime(QueenHasNextTarget ? float.NaN : QueenObjectiveIn, QueenLifetimeFloor)
+			|| DowntimeWithin(QueenLifetimeFloor)) return false;
 		return AutomatonQueenPvE.EnoughLevel
 			? AutomatonQueenPvE.CanUse(out act, skipTTKCheck: knownLifetime || QueenForecastObjectiveIn >= RequiredQueenLifetime)
 			: RookAutoturretPvE.CanUse(out act, skipTTKCheck: knownLifetime || QueenForecastObjectiveIn >= RequiredQueenLifetime);
