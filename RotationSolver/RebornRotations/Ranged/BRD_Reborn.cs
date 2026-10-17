@@ -783,6 +783,13 @@ public class BRD_Reborn : BardRotation
 			return false;
 		}
 
+		// Opener: Empyreal right after Minuet, before the buffs (party buffs land ~6-7s anyway). At ~7s its third use fell into
+		// FRU P1's untargetable stretch; from ~2s it fits before it (top logs: 6 Empyreals in 0-120s, us 5).
+		if (InCombat && CombatTime < 10f && Song == Song.WanderersMinuet && EmpyrealArrowPvE.CanUse(out act))
+		{
+			return true;
+		}
+
 		if (FinalKillDump(out act))
 		{
 			return true;
@@ -860,7 +867,9 @@ public class BRD_Reborn : BardRotation
 		// Two-stack PP before Empyreal: its guaranteed stack plus a coincident song tick overflows the cap.
 		if (PitchPerfectPvE.CanUse(out act, skipAoeCheck: true, skipComboCheck: true))
 		{
-			if (SongEndAfter(3) && Repertoire > 0)
+			// Last chance only (Minuet ends before the next GCD's weave): the song swap already spends leftover stacks just before
+			// switching, so a 3s drain split them into two one-stack PPs around the last song tick (top logs 3-5 one-stack PPs, us 7).
+			if (SongEndAfter(0.7f) && Repertoire > 0)
 			{
 				return true;
 			}
