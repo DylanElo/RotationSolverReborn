@@ -7,42 +7,38 @@ namespace RotationSolver.Commands
 {
 	public static partial class RSCommands
 	{
+		private static readonly HashSet<string> _registeredCommands = [];
+
 		internal static void Enable()
 		{
+			Disable();
 			DataCenter.OnSpecialTypeChanged = specialType =>
 			{
 				var role = Player.Object?.ClassJob.Value.GetJobRole() ?? JobRole.None;
 				_specialString = specialType.ToSpecialString(role);
 			};
 
-			_ = Svc.Commands.AddHandler(Service.COMMAND, new CommandInfo(OnCommand)
+			// Auto and Off are arguments handled by OnCommand, not separate command names.
+			foreach (var command in new[] { Service.COMMAND, Service.ALTCOMMAND })
 			{
-				HelpMessage = UiString.Commands_Rotation.GetDescription(),
-				ShowInHelp = true,
-			});
-			_ = Svc.Commands.AddHandler(Service.ALTCOMMAND, new CommandInfo(OnCommand)
-			{
-				HelpMessage = UiString.Commands_Rotation.GetDescription(),
-				ShowInHelp = true,
-			});
-			_ = Svc.Commands.AddHandler(Service.AUTOCOMMAND, new CommandInfo(OnCommand)
-			{
-				HelpMessage = UiString.Commands_Start.GetDescription(),
-				ShowInHelp = true,
-			});
-			_ = Svc.Commands.AddHandler(Service.OFFCOMMAND, new CommandInfo(OnCommand)
-			{
-				HelpMessage = UiString.Commands_Off.GetDescription(),
-				ShowInHelp = true,
-			});
+				if (Svc.Commands.AddHandler(command, new CommandInfo(OnCommand)
+				{
+					HelpMessage = UiString.Commands_Rotation.GetDescription(),
+					ShowInHelp = true,
+				}))
+				{
+					_registeredCommands.Add(command);
+				}
+			}
 		}
 
 		internal static void Disable()
 		{
-			_ = Svc.Commands.RemoveHandler(Service.COMMAND);
-			_ = Svc.Commands.RemoveHandler(Service.ALTCOMMAND);
-			_ = Svc.Commands.RemoveHandler(Service.AUTOCOMMAND);
-			_ = Svc.Commands.RemoveHandler(Service.OFFCOMMAND);
+			foreach (var command in _registeredCommands)
+			{
+				_ = Svc.Commands.RemoveHandler(command);
+			}
+			_registeredCommands.Clear();
 		}
 
 		private static void OnCommand(string command, string arguments)
@@ -76,7 +72,11 @@ namespace RotationSolver.Commands
 				if (parts.Length > 1)
 				{
 					var value = parts[1];
-					if (Enum.TryParse(typeof(TargetingType), value, true, out var parsedEnumSet))
+					if (int.TryParse(value, out var targetingIndex))
+					{
+						index = targetingIndex;
+					}
+					else if (Enum.TryParse(typeof(TargetingType), value, true, out var parsedEnumSet))
 					{
 						var targetingTypeSet = (TargetingType)parsedEnumSet;
 						var idx = Service.Config.TargetingTypes.IndexOf(targetingTypeSet);
@@ -94,10 +94,6 @@ namespace RotationSolver.Commands
 							Svc.Chat.PrintError($"{targetingTypeSet} is not in TargetingTypes list.");
 							return;
 						}
-					}
-					else if (!int.TryParse(value, out index))
-					{
-						index = -1;
 					}
 				}
 

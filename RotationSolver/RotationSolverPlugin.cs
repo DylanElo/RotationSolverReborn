@@ -288,7 +288,6 @@ public sealed class RotationSolverPlugin : IAsyncDalamudPlugin
 		_mainWindow!.WindowName = UiString.ConfigWindowHeader.GetDescription()
 			+ (typeof(MainWindow).Assembly.GetName().Version?.ToString() ?? "?.?.?") + "###rsrConfigWindow";
 
-		RSCommands.Disable();
 		RSCommands.Enable();
 	}
 
