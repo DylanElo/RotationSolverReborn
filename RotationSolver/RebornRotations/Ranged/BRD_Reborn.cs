@@ -880,6 +880,14 @@ public class BRD_Reborn : BardRotation
 			}
 		}
 
+		// Charges keep recharging through a known downtime (15s each): spend the ones that would sit at the cap in it. If a
+		// burst follows, they are back by then anyway. 10-17 clear vs top logs: 146s at the cap (tops 50-76s), mostly P1.
+		if (ChargesCapInDowntime && (RainOfDeathPvE.CanUse(out act, usedUp: true)
+			|| HeartbreakShotPvE.CanUse(out act, usedUp: true) || BloodletterPvE.CanUse(out act, usedUp: true)))
+		{
+			return true;
+		}
+
 		// Bloodletter Overcap protection
 		if (BloodletterPvE.Cooldown.WillHaveXCharges(BloodletterMax, 3f))
 		{
@@ -1202,6 +1210,11 @@ public class BRD_Reborn : BardRotation
 
 		return false;
 	}
+
+	/// <summary>Downtime starts within three GCDs and the charges would reach the cap before it ends.</summary>
+	private bool ChargesCapInDowntime => BMRDowntimeIn is > 0f and < float.MaxValue && BMRDowntimeIn <= GCDTime(3)
+		&& BMRDowntimeEndIn is > 0f and < float.MaxValue
+		&& BloodletterPvE.Cooldown.WillHaveXCharges(BloodletterMax, BMRDowntimeEndIn - GCDTime(1));
 
 	private bool BetterBloodletterLogic(out IAction? act)
 	{
