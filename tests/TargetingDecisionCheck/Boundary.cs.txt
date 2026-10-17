@@ -1,0 +1,37 @@
+// External boundaries only: eligibility is the already filtered candidate enumerable passed
+// to native FindHostile. This harness does not emulate action range or LOS filtering.
+class IBattleChara {
+ public ulong GameObjectId,OwnerId; public IBattleChara? TargetObject; public Name Name=new(); public bool Immune; public unsafe void* Struct()=>(void*)1; public bool IsConditionCannotTarget()=>false; public bool IsSpecialExceptionImmune()=>Immune; public bool IsSpecialImmune()=>false; public bool IsOthersPlayersMob()=>false; public bool IsBozjanCEMob()=>false; public bool IsTopPriorityNamedHostile()=>false; public uint BaseId,NameId,CurrentHp=100,MaxHp=100,Fate; public bool IsTargetable=true,Party,Alliance,Special,Forlorn,M9,M10,Occult,Wildfire,Stopped; public int Icon; public float HitboxRadius=1,Distance; public Vector3 Position; public Status[] StatusList=[]; public EventHandlerContent Event; public BattleNpcSubKind Kind;
+ public int GetNamePlateIcon()=>Icon;public bool IsAllianceMember()=>Alliance;public bool IsParty()=>Party;
+ public bool TreasureDungeonPrio()=>Special;public bool IsForlorn()=>Forlorn;public bool IsM9SavagePriority()=>M9;public bool IsM10SavagePriority()=>M10;public bool IsSpecialInclusionPriority()=>Special;public bool IsOccultCEMob()=>Occult;
+ public bool HasStatus(bool own,StatusID status)=>Wildfire;public bool IsNamed(NPCName name)=>false; public bool IsEnemy()=>true;public uint FateId()=>Fate;public EventHandlerContent GetEventType()=>Event;public BattleNpcSubKind GetBattleNPCSubKind()=>Kind;public float DistanceToPlayer()=>Distance;public bool IsJobs(int[] jobs)=>false;
+}
+class Status {public bool Priority;}
+static class StatusHelper {public static bool IsPriority(Status status)=>status.Priority; public static bool IsInvincible(Status status)=>false;}
+enum Job {BRD,MCH,VPR} enum StatusID {Wildfire,Wildfire_1323} enum EventHandlerContent {None,Quest,DpsChallengeDirector} enum BattleNpcSubKind {None,BNpcPart}
+enum TargetingType {Small,HighHP,LowHP,HighHPPercent,LowHPPercent,HighMaxHP,LowMaxHP,Nearest,Farthest,PvPHealers,PvPTanks,PvPDPS}
+enum JobRole {Healer,Tank,AllDPS}
+static class Roles {public static int[] ToJobs(this JobRole role)=>[];}
+static class Player {public static Job Job; public static IBattleChara? Object=new();}
+static class Svc {public static List<IBattleChara> Objects=[]; public static Conditions Condition=new(); public static ClientState ClientState=new();}
+static class DataCenter {
+ public static Territory? Territory; public static List<IBattleChara> PartyMembers=[];public static TargetHostileType CurrentTargetToHostileType=TargetHostileType.TargetsHaveTarget; public static bool IsHenched,IsInBozjanFieldOp,IsInBozjanFieldOpCE; public static bool IsInFRU=true,IsInTreasureHunt,IsInFate,IsInOccultCrescentOp,IsInNorthHorn,IsPvP;public static uint PlayerFateId;public static TargetingType TargetingType=TargetingType.HighHP;
+}
+class Config {
+ public bool FilterOneHpInvincible=true,IgnorePvPInvincibility,IgnoreNonFateInFate,TargetQuestThings3,ForlornPriority; public bool Treasuredungeonnumbered,Treasuredungeontimed,PrioAtomelith,PrioBtomelith,ChooseAttackMark,TargetFatePriority,TargetHuntingRelicLevePriority,TargetQuestPriority,PrioEnemyParts,FilterStopMark2,SmallHp;
+}
+static class Service {public static Config Config=new();public static float CountDownTime;}
+static class MarkingHelper {public static long[] Marks=[];public static long[] GetAttackSignTargets()=>Marks;public static IEnumerable<IBattleChara> FilterStopCharacters(IEnumerable<IBattleChara> candidates)=>candidates.Where(c=>!c.Stopped);}
+static partial class ObjectHelper {static bool IsForlornSipInRange()=>false; static bool IsSoloDeepDungeonSmartAttackable(IBattleChara c)=>false;static System.Text.RegularExpressions.Regex GetCachedRegex(string pattern)=>new(pattern); public static int GetNamePlateIconPriority(int icon)=>icon is >=60687 and <=60691 ? icon-60687 : int.MaxValue;}
+
+// IsAttackable/ValidityCheck external platform facts, with native policy left intact.
+class Name {public string TextValue="";}
+static class OtherConfiguration {public static Dictionary<uint,string[]> NoHostileNames=[];}
+static class PluginLog {public static void Error(string message)=>throw new Exception(message);}
+enum ConditionFlag {BoundByDuty,BoundByDuty56}
+class Conditions {public bool this[ConditionFlag flag]=>false;}
+class ClientState {public uint TerritoryType;}
+enum TerritoryContentType {None,Eureka}
+class Territory {public TerritoryContentType ContentType;}
+enum TargetHostileType {AllTargetsCanAttack,TargetsHaveTarget,AllTargetsWhenSolo,AllTargetsWhenSoloInDuty,SoloDeepDungeonSmart}
+enum NPCName {BlackStar,MythicIdol}

@@ -275,7 +275,20 @@ public class VPR_Reborn : ViperRotation
 		&& SwiftTime > SwiftTimer && HuntersTime > HuntersTimer;
 	protected virtual bool AllowUncoiledFury => true;
 	protected virtual bool PreferUncoiledFury => false;
+	protected virtual bool SpendFuryBeforeFreeReawaken => false;
 	protected virtual bool AllowBurstMedicine => true;
+
+	protected virtual bool TryUseReawaken(out IAction? act)
+	{
+		act = null;
+		return AllowReawaken && IsBurst && ReawakenPvE.CanUse(out act, skipComboCheck: true);
+	}
+
+	protected virtual bool TryUseUncoiledFury(out IAction? act, bool preferred = false)
+	{
+		act = null;
+		return (!preferred || PreferUncoiledFury) && AllowUncoiledFury && UncoiledFuryPvE.CanUse(out act, usedUp: true);
+	}
 
 	#region oGCD Logic
 
@@ -310,7 +323,7 @@ public class VPR_Reborn : ViperRotation
 		if (AbilityPrio2 &&
 			!NoAbilityReady)
 		{
-			if ((UFGhosting || (!UFGhosting && NoAbilityReady)) && !HasHostilesInRange && AllowUncoiledFury && UncoiledFuryPvE.CanUse(out act, usedUp: true))
+			if ((UFGhosting || (!UFGhosting && NoAbilityReady)) && !HasHostilesInRange && TryUseUncoiledFury(out act))
 			{
 				return true;
 			}
@@ -349,18 +362,10 @@ public class VPR_Reborn : ViperRotation
 			return true;
 		}
 
-		// Check if player meets Serpents Ire requirements, then check buff timers.
-		if (AllowReawaken)
-		{
-			// If all above conditions are met, attempt to use Reawaken.
-			if (IsBurst && ReawakenPvE.CanUse(out act, skipComboCheck: true))
-			{
-				return true;
-			}
-		}
+		if (TryUseReawaken(out act)) return true;
 
-		if (PreferUncoiledFury && AllowUncoiledFury && NoAbilityReady && !HasReadyToReawaken
-			&& !WillSwiftEnd && !WillHunterEnd && UncoiledFuryPvE.CanUse(out act, usedUp: true))
+		if (NoAbilityReady && (!HasReadyToReawaken || SpendFuryBeforeFreeReawaken)
+			&& !WillSwiftEnd && !WillHunterEnd && TryUseUncoiledFury(out act, preferred: true))
 		{
 			return true;
 		}
@@ -370,17 +375,17 @@ public class VPR_Reborn : ViperRotation
 			// Uncoiled Fury Overcap protection
 			var isTargetBoss = CurrentTarget?.IsBossFromTTK() ?? false;
 			var isTargetDying = CurrentTarget?.IsDying() ?? false;
-			if ((MaxRattling == RattlingCoilStacks || RattlingCoilStacks >= MaxUncoiledStacksUser || (isTargetBoss && isTargetDying && RattlingCoilStacks > 0)) && !HasReadyToReawaken && NoAbilityReady)
+			if ((MaxRattling == RattlingCoilStacks || RattlingCoilStacks >= MaxUncoiledStacksUser || (isTargetBoss && isTargetDying && RattlingCoilStacks > 0)) && (!HasReadyToReawaken || SpendFuryBeforeFreeReawaken) && NoAbilityReady)
 			{
-				if (AllowUncoiledFury && UncoiledFuryPvE.CanUse(out act, usedUp: true))
+				if (TryUseUncoiledFury(out act))
 				{
 					return true;
 				}
 			}
 
-			if (MedicineUncoiledFury && StatusHelper.PlayerHasStatus(true, StatusID.Medicated) && !HasReadyToReawaken && NoAbilityReady)
+			if (MedicineUncoiledFury && StatusHelper.PlayerHasStatus(true, StatusID.Medicated) && (!HasReadyToReawaken || SpendFuryBeforeFreeReawaken) && NoAbilityReady)
 			{
-				if (AllowUncoiledFury && UncoiledFuryPvE.CanUse(out act, usedUp: true))
+				if (TryUseUncoiledFury(out act))
 				{
 					return true;
 				}
@@ -389,10 +394,10 @@ public class VPR_Reborn : ViperRotation
 			if ((RattlingCoilStacks > 1
 				|| !BurstUncoiledFuryHold)
 				&& SerpentsIrePvE.Cooldown.JustUsedAfter(30)
-				&& !HasReadyToReawaken
+				&& (!HasReadyToReawaken || SpendFuryBeforeFreeReawaken)
 				&& NoAbilityReady)
 			{
-				if (AllowUncoiledFury && UncoiledFuryPvE.CanUse(out act, usedUp: true))
+				if (TryUseUncoiledFury(out act))
 				{
 					return true;
 				}
@@ -1020,7 +1025,7 @@ public class VPR_Reborn : ViperRotation
 		}
 
 		//Ranged
-		if ((UFGhosting || (!UFGhosting && NoAbilityReady)) && AllowUncoiledFury && UncoiledFuryPvE.CanUse(out act, usedUp: true))
+		if ((UFGhosting || (!UFGhosting && NoAbilityReady)) && TryUseUncoiledFury(out act))
 		{
 			return true;
 		}

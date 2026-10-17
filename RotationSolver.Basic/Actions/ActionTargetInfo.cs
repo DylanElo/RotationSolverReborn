@@ -3289,7 +3289,7 @@ public struct ActionTargetInfo(IBaseAction action)
 			var highPriorityHostiles = new List<IBattleChara>();
 			foreach (var b in battleChara)
 			{
-				if (ObjectHelper.IsTopPriorityHostile(b))
+				if (ObjectHelper.IsTopPriorityHostile(b, battleChara))
 				{
 					highPriorityHostiles.Add(b);
 				}

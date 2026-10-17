@@ -87,6 +87,7 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 	private float _lastPartyBuffScanAt = -1f;
 	private bool _lastPartyBuffScanInCombat;
 	private int _lastPartyBuffScanVersion = -1;
+	private ulong _lastPartyBuffScanTarget;
 	private uint _dungeonTerritory;
 	private bool _dungeonWasInCombat;
 	private bool _dungeonBossEncounter;
@@ -102,6 +103,7 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 	private VPRSyncPlusDecision _decision = VPRSyncPlusDecision.Default;
 	private float _decisionComputedAt = float.MinValue;
 	private bool _decisionComputedInCombat;
+	private ulong _decisionComputedTarget;
 	private readonly List<VPRSyncPlusBurstUse> _burstUses = [];
 	private float _totalHeldSeconds;
 	private string _lastReportedReasonKey = string.Empty;
@@ -118,7 +120,9 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 		&& _activePartyBuffs >= _expectedPartyBuffsCount;
 	private float SecondsInPartyBurst => _partyBurstStartedAt < 0f ? 0f : EncounterTime - _partyBurstStartedAt;
 	private float BurstHeldFor => _burstReadyAt < 0f ? 0f : EncounterTime - _burstReadyAt;
-	private static IBattleChara? SchedulerTarget => CurrentTarget ?? HostileTarget;
+	private IBattleChara? _burstCandidateTarget;
+	private VPRSyncPlusDecision? _candidateDecision;
+	private IBattleChara? SchedulerTarget => _burstCandidateTarget ?? CurrentTarget ?? HostileTarget;
 	private bool IsCurrentTargetBoss => SchedulerTarget?.IsBossFromIcon() == true;
 	private bool TargetDying => SchedulerTarget?.IsDying() == true;
 
@@ -209,16 +213,43 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 	{
 		get
 		{
+			if (_candidateDecision.HasValue) return _candidateDecision.Value;
 			var now = EncounterTime;
 			var inCombat = InCombat;
-			if (now == _decisionComputedAt && inCombat == _decisionComputedInCombat) return _decision;
+			var targetId = SchedulerTarget?.GameObjectId ?? 0;
+			if (now == _decisionComputedAt && inCombat == _decisionComputedInCombat
+				&& targetId == _decisionComputedTarget) return _decision;
 
 			_decisionComputedAt = now;
 			_decisionComputedInCombat = inCombat;
+			_decisionComputedTarget = targetId;
 			UpdateBurstTracker();
 			UpdateDungeonTracker();
 
-			_decision = VPRSyncPlusScheduler.Evaluate(new VPRSyncPlusSnapshot(
+			_decision = EvaluateBurstDecision();
+
+			if (_decision.Burst == VPRSyncPlusBurstGate.Commit && ReawakenReady)
+			{
+				_pendingBurstReason = _decision.Reason;
+				_pendingBurstActiveBuffs = _activePartyBuffs;
+				_pendingBurstExpectedBuffs = _expectedPartyBuffsCount;
+			}
+
+			var reasonKey = VPRSyncPlusPolicy.StableDecisionReason(_decision.Reason);
+			if (LogBurstReport && reasonKey != _lastReportedReasonKey && InCombat)
+			{
+				_lastReportedReasonKey = reasonKey;
+				Svc.Log.Info($"[VPR Sync] {now:F1}s {_decision.Burst}/{_decision.Resources}: {_decision.Reason} (buffs {_activePartyBuffs}/{_expectedPartyBuffsCount}, Gauge {SerpentOffering}, Anguine {AnguineTributeStacks})");
+			}
+
+			RecordBurstCasts();
+			LogRotationState();
+			return _decision;
+		}
+	}
+
+	private VPRSyncPlusDecision EvaluateBurstDecision()
+		=> VPRSyncPlusScheduler.Evaluate(new VPRSyncPlusSnapshot(
 				IsBurst,
 				ReserveBurst,
 				SynchronizePartyBurst,
@@ -242,26 +273,6 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 					OverlapWaitSeconds),
 				LookAheadSeconds,
 				HasReadyToReawaken));
-
-			if (_decision.Burst == VPRSyncPlusBurstGate.Commit && ReawakenReady)
-			{
-				_pendingBurstReason = _decision.Reason;
-				_pendingBurstActiveBuffs = _activePartyBuffs;
-				_pendingBurstExpectedBuffs = _expectedPartyBuffsCount;
-			}
-
-			var reasonKey = VPRSyncPlusPolicy.StableDecisionReason(_decision.Reason);
-			if (LogBurstReport && reasonKey != _lastReportedReasonKey && InCombat)
-			{
-				_lastReportedReasonKey = reasonKey;
-				Svc.Log.Info($"[VPR Sync] {now:F1}s {_decision.Burst}/{_decision.Resources}: {_decision.Reason} (buffs {_activePartyBuffs}/{_expectedPartyBuffsCount}, Gauge {SerpentOffering}, Anguine {AnguineTributeStacks})");
-			}
-
-			RecordBurstCasts();
-			LogRotationState();
-			return _decision;
-		}
-	}
 
 	#region Burst & Action Hooks
 	private bool ShouldCommitPersonalBurst => Decision.Burst == VPRSyncPlusBurstGate.Commit;
@@ -302,8 +313,52 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 		&& VPRSyncPlusPolicy.ShouldSpendUncoiledFury(
 		ShouldHoldFlexibleResources, PartyBurstActive, RattlingCoilStacks, MaxRattling,
 		HasHostilesInRange, TargetDying || (MedicineUncoiledFury && StatusHelper.PlayerHasStatus(true, StatusID.Medicated)));
-	protected override bool PreferUncoiledFury => PartyBurstActive;
+	protected override bool PreferUncoiledFury => PartyBurstActive || SpendFuryBeforeFreeReawaken;
+	// A free token held across a jump must not prevent spending coils before it.
+	protected override bool SpendFuryBeforeFreeReawaken => HasReadyToReawaken && Decision.Downtime != VPRSyncPlusDowntimeAction.None;
 	protected override bool AllowBurstMedicine => ShouldCommitPersonalBurst && !ReserveBurst;
+
+	protected override bool TryUseReawaken(out IAction? act)
+	{
+		if (IsBurst && ReawakenPvE.CanUse(out act, skipComboCheck: true)
+			&& CandidateAllowsBurst(ReawakenPvE, () => AllowReawaken)) return true;
+		act = null;
+		return false;
+	}
+
+	protected override bool TryUseUncoiledFury(out IAction? act, bool preferred = false)
+	{
+		if (UncoiledFuryPvE.CanUse(out act, usedUp: true)
+			&& CandidateAllowsBurst(UncoiledFuryPvE, () => (!preferred || PreferUncoiledFury) && AllowUncoiledFury)) return true;
+		act = null;
+		return false;
+	}
+
+	private bool CandidateAllowsBurst(IBaseAction action, Func<bool> allowed)
+	{
+		var candidate = action.Target.Target;
+		// Self-centred attacks value a hostile they actually affect, rather than the player target.
+		if (candidate?.GameObjectId == Player?.GameObjectId)
+			candidate = action.Target.AffectedTargets.FirstOrDefault(t => t.GameObjectId == SchedulerTarget?.GameObjectId)
+				?? action.Target.AffectedTargets.FirstOrDefault();
+		if (candidate == null) return false;
+
+		var previousTarget = _burstCandidateTarget;
+		var previousDecision = _candidateDecision;
+		try
+		{
+			_burstCandidateTarget = candidate;
+			UpdateExpectedPartyBuffs();
+			_candidateDecision = EvaluateBurstDecision();
+			return allowed();
+		}
+		finally
+		{
+			_burstCandidateTarget = previousTarget;
+			_candidateDecision = previousDecision;
+			UpdateExpectedPartyBuffs();
+		}
+	}
 
 	protected override bool GeneralGCD(out IAction? act)
 	{
@@ -316,12 +371,16 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 		_ = Decision;
 		// Keep Legacy/Twinfang/Twinblood ahead of potion use.
 		// A selected Reawaken has passed CanUse, including its target and action checks.
-		if (NoAbilityReady && VPRSyncPlusPolicy.ShouldUseSecondMedicine(
-			UseSecondBurstMedicine, EncounterTime, SecondMedicineTime,
-			AllowBurstMedicine, AllowReawaken, nextGCD.IsTheSameTo(false, ReawakenPvE))
+		if (NoAbilityReady && nextGCD.IsTheSameTo(false, ReawakenPvE)
+			&& CandidateAllowsBurst(ReawakenPvE, ShouldUseSelectedBurstMedicine)
 			&& UseBurstMedicine(out act)) return true;
 		return base.EmergencyAbility(nextGCD, out act);
 	}
+
+	private bool ShouldUseSelectedBurstMedicine()
+		=> VPRSyncPlusPolicy.ShouldUseSecondMedicine(
+			UseSecondBurstMedicine, EncounterTime, SecondMedicineTime,
+			AllowBurstMedicine, AllowReawaken, true);
 
 	private static bool IsTrackedBurstAction(ActionID id) => id is ActionID.SerpentsIrePvE
 		or ActionID.ReawakenPvE or ActionID.OuroborosPvE or ActionID.UncoiledFuryPvE;
@@ -375,7 +434,8 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 			_totalHeldSeconds += elapsed;
 		}
 
-		var partyBurstActive = PartyBurstActive;
+		// The overlap wait follows observed party cadence even if this action resolves another enemy.
+		var partyBurstActive = _activeAnchorJobs > 0;
 		if (partyBurstActive && !_partyBurstWasActive)
 		{
 			_partyBurstStartedAt = encounterTime;
@@ -459,9 +519,11 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 		StatusList();
 		var encounterTime = EncounterTime;
 		var buffsVersion = PartyBuffsVersion;
+		var targetId = SchedulerTarget?.GameObjectId ?? 0;
 		if (encounterTime == _lastPartyBuffScanAt
 			&& InCombat == _lastPartyBuffScanInCombat
-			&& buffsVersion == _lastPartyBuffScanVersion)
+			&& buffsVersion == _lastPartyBuffScanVersion
+			&& targetId == _lastPartyBuffScanTarget)
 		{
 			return;
 		}
@@ -469,6 +531,7 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 		_lastPartyBuffScanAt = encounterTime;
 		_lastPartyBuffScanInCombat = InCombat;
 		_lastPartyBuffScanVersion = buffsVersion;
+		_lastPartyBuffScanTarget = targetId;
 		var anchorJob = AnchorJob == VPRSyncPlusAnchorJob.Automatic ? null : AnchorJob.ToString();
 		var anchorJobActive = false;
 		var active = 0;
@@ -483,18 +546,23 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 		for (var index = 0; index < Buffs.Count; index++)
 		{
 			var buff = Buffs[index];
-			var isActive = IsPartyBuffActive(buff);
-			if (InCombat && isActive) _ = _observedPartyBuffs.Add(buff);
+			var anchorActive = IsPartyBuffActive(buff);
+			var isActive = buff.Type == StatusType.Buff ? anchorActive
+				: SchedulerTarget?.HasStatus(false, buff.Ids) == true;
+			if (InCombat && anchorActive) _ = _observedPartyBuffs.Add(buff);
 			var shouldExpect = VPRSyncPlusPolicy.ShouldExpectPartyBuff(
 				encounterTime, _observedPartyBuffs.Contains(buff));
 			if (shouldExpect) names.Add($"{buff.JobAbbr} {buff.Name}");
 
 			if (shouldExpect) expectedJobs.Add(buff.JobAbbr);
-			if (isActive)
+			if (anchorActive)
 			{
 				activeJobs.Add(buff.JobAbbr);
 				anchorJobActive |= anchorJob is not null
 					&& string.Equals(buff.JobAbbr, anchorJob, StringComparison.OrdinalIgnoreCase);
+			}
+			if (isActive)
+			{
 				shortestActiveRemaining = Math.Min(shortestActiveRemaining, PartyBuffRemaining(buff));
 			}
 
@@ -548,13 +616,13 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 			? Player != null && StatusHelper.PlayerHasStatus(false, buff.Ids)
 			: FindDebuffCarrier(buff) != null;
 
-	private static float PartyBuffRemaining(StatusInfo buff)
+	private float PartyBuffRemaining(StatusInfo buff)
 	{
 		if (buff.Type == StatusType.Buff)
 		{
 			return Player == null ? 0f : StatusHelper.PlayerStatusTime(false, buff.Ids);
 		}
-		return FindDebuffCarrier(buff)?.StatusTime(false, buff.Ids) ?? 0f;
+		return SchedulerTarget?.StatusTime(false, buff.Ids) ?? 0f;
 	}
 
 	private bool IsAnchorWorthy()

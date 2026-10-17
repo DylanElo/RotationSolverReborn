@@ -929,7 +929,9 @@ public static class ObjectHelper
 	/// <returns>
 	/// <c>true</c> if the game object is a top priority hostile target; otherwise, <c>false</c>.
 	/// </returns>
-	internal static bool IsTopPriorityHostile(this IBattleChara battleChara)
+	internal static bool IsTopPriorityHostile(this IBattleChara battleChara) => IsTopPriorityHostile(battleChara, null);
+
+	internal static bool IsTopPriorityHostile(this IBattleChara battleChara, IEnumerable<IBattleChara>? candidates)
 	{
 		if (battleChara == null)
 		{
@@ -969,6 +971,11 @@ public static class ObjectHelper
 		}
 
 		if (battleChara.IsM9SavagePriority())
+		{
+			return true;
+		}
+
+		if (battleChara.IsFRUCrystalPriority(candidates))
 		{
 			return true;
 		}
@@ -1119,6 +1126,44 @@ public static class ObjectHelper
 	/// <summary>
 	/// 
 	/// </summary>
+	private const uint FRUCrystalOfLight = 0x45A3;
+
+	/// <summary>
+	/// FRU P2 end (Crystals of Light at the four cardinals): the party kills the one at (100, 85) first, then (85, 100), then the
+	/// rest. RSR's own pick ignored that and the crystals were targeted by hand (4 logged pulls, 2026-10-12..15, all this order).
+	/// </summary>
+	// ponytail: spots fixed for the Mana strat; FRU-only, no setting. Ice Veil follows once no crystal is left.
+	private static readonly Vector2[] FRUCrystalOrder = [new(100f, 85f), new(85f, 100f)];
+
+	internal static bool IsFRUCrystalPriority(this IBattleChara battleChara, IEnumerable<IBattleChara>? candidates = null)
+	{
+		if (!DataCenter.IsInFRU || battleChara.BaseId != FRUCrystalOfLight)
+		{
+			return false;
+		}
+
+		if (candidates == null)
+		{
+			// Keep all crystals attackable before range/stop/blacklist filtering; rank the surviving action candidates below.
+			return battleChara.CurrentHp > 0 && battleChara.IsTargetable;
+		}
+
+		foreach (var spot in FRUCrystalOrder)
+		{
+			// Rank only eligible action targets; an unreachable/stop-marked crystal must not suppress the rest.
+			foreach (var o in candidates)
+			{
+				if (o is IBattleChara c && c.BaseId == FRUCrystalOfLight && c.CurrentHp > 0 && c.IsTargetable
+					&& Vector2.Distance(new Vector2(c.Position.X, c.Position.Z), spot) < 3f)
+				{
+					return c.GameObjectId == battleChara.GameObjectId;
+				}
+			}
+		}
+
+		return true;
+	}
+
 	public static bool IsM9SavagePriority(this IBattleChara battleChara)
 	{
 		if (Player.Object == null)

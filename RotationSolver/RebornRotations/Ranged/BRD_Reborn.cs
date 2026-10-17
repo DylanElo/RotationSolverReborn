@@ -79,6 +79,12 @@ public class BRD_Reborn : BardRotation
 
 	private static bool UptimeForDoT => DoTPaysOff(BMRDowntimeIn);
 
+	private static bool TargetLivesForDoT(IBattleChara? target)
+	{
+		var ttk = target?.GetTTK() ?? float.NaN;
+		return !(ttk > 0f) || DoTPaysOff(ttk);
+	}
+
 	/// <summary>Another job's raid buff is up (or its debuff is on the target): the party is bursting now.</summary>
 	private protected static bool PartyRaidBuffUp => Buffs.Any(b => b.JobAbbr != "BRD" && IsUp(b));
 
@@ -164,10 +170,10 @@ public class BRD_Reborn : BardRotation
 			return true;
 		}
 
-		// Raging Strikes nearly over: Barrage goes now so its Refulgent and Resonant Arrow still land in it. The DoT-proc and
+		// Earliest burst buff nearly over: Barrage goes now so its Refulgent and Resonant Arrow still land in it. The DoT-proc and
 		// Empyreal waits below cost ~100 potency; they starved FRU P4's burst (fresh bosses, DoTs applied inside it) of
 		// Barrage for all 20s, ~500 lost. Hawk's Eye still blocks: GeneralGCD spends that proc first under Raging Strikes.
-		if (HasRagingStrikes && StatusHelper.PlayerWillStatusEnd(BarrageLastCall, true, StatusID.RagingStrikes)
+		if (HasRagingStrikes && StatusHelper.PlayerWillStatusEnd(BarrageLastCall, true, StatusID.BattleVoice, StatusID.RadiantFinale, StatusID.RagingStrikes)
 			&& !HasHawksEye && Repertoire != 3 && BarragePvE.CanUse(out act))
 		{
 			return true;
@@ -179,7 +185,7 @@ public class BRD_Reborn : BardRotation
 		}
 		else if (!RagingStrikesPvE.EnoughLevel || HasRagingStrikes)
 		{
-			if (((EmpyrealArrowPvE.Cooldown.IsCoolingDown && !EmpyrealArrowPvE.Cooldown.WillHaveOneChargeGCD(1)) || !EmpyrealArrowPvE.EnoughLevel) && Repertoire != 3)
+			if ((EmpyrealArrowPvE.Cooldown.IsCoolingDown || !EmpyrealArrowPvE.EnoughLevel) && Repertoire != 3)
 			{
 				if (!StatusHelper.PlayerHasStatus(true, StatusID.HawksEye_3861) && BarragePvE.CanUse(out act))
 				{
@@ -192,9 +198,9 @@ public class BRD_Reborn : BardRotation
 	}
 
 	// ponytail: fixed combat times drift with kill speed; ±20s plus the Raging Strikes gate absorbs normal variance.
-	/// <summary>With burst on, a ready Finale means the stacks wait for the buffs (unless a planned hold keeps it ready); with it off Finale never goes.</summary>
-	internal static bool TwoStackPPBeforeEmpyreal(int repertoire, bool empyrealSoon, bool autoBurst, bool finaleCooling)
-		=> repertoire == 2 && empyrealSoon && (!autoBurst || finaleCooling);
+	/// <summary>Drain two stacks before Empyreal and a coincident song tick can overflow Repertoire.</summary>
+	internal static bool TwoStackPPBeforeEmpyreal(int repertoire, bool empyrealSoon)
+		=> repertoire == 2 && empyrealSoon;
 
 	internal static bool PotionDue(float combatTime, string times)
 	{
@@ -262,7 +268,7 @@ public class BRD_Reborn : BardRotation
 		["Arcane Circle"] = 0.03f, ["Embolden"] = 0.05f, ["Chain Stratagem"] = 0.06f, ["Searing Light"] = 0.05f,
 	};
 
-	/// <summary>Raging Strikes time left that still fits Barrage's Refulgent and Resonant Arrow (3 GCDs).</summary>
+	/// <summary>Burst buff time left that still fits Barrage's Refulgent and Resonant Arrow (3 GCDs).</summary>
 	private const float BarrageLastCall = 7.5f;
 
 	private const float RagingStrikesWeight = 0.15f;
@@ -328,14 +334,15 @@ public class BRD_Reborn : BardRotation
 	/// The burst-end Iron Jaws re-applies both DoTs at the current multiplier for 45s. Gain: the remaining time at (now - old snapshot),
 	/// plus the rest of the 45s at (now - 1), which without it would tick after an unbuffed refresh. Cost: the clipped remaining time
 	/// brings the next Iron Jaws forward, ~IronJawsLoss * remain / 45. Unknown snapshot reads 1 (unbuffed).
-	/// Ticks after the target dies count for nothing: both spans stop at its TTK (NaN or 0 = unknown, the full 45s).
+	/// Both spans stop at target death or the next downtime, whichever comes first (unknown values keep the 45s horizon).
 	/// If the old DoTs outlive the target, no later refresh is saved: pay the full buffed filler loss now.
 	/// </summary>
-	internal static bool BurstEndRefreshPays(float now, float dotSnapshot, float remain, float ttk = float.NaN)
+	internal static bool BurstEndRefreshPays(float now, float dotSnapshot, float remain, float ttk = float.NaN, float downtimeIn = float.PositiveInfinity)
 	{
-		var horizon = ttk > 0f ? Math.Min(ttk, DotDuration) : DotDuration;
+		var horizon = Math.Min(ttk > 0f ? Math.Min(ttk, DotDuration) : DotDuration,
+			downtimeIn >= 0f ? downtimeIn : DotDuration);
 		var clipped = Math.Min(remain, horizon);
-		var cost = ttk > 0f && ttk <= remain ? IronJawsLoss * now : IronJawsLoss * remain / DotDuration;
+		var cost = horizon <= remain ? IronJawsLoss * now : IronJawsLoss * remain / DotDuration;
 		return DotPotencyPerSecond * (clipped * (now - dotSnapshot) + (horizon - clipped) * (now - 1f)) > cost;
 	}
 
@@ -408,6 +415,17 @@ public class BRD_Reborn : BardRotation
 
 	internal static bool CanRecoverCtPaeon(float recast, float returnIn)
 		=> returnIn is > 0f and < float.MaxValue && recast <= returnIn;
+
+	internal static bool ShouldReserveP4BurstWeave(bool fruPair, bool burst, bool hold, float windowIn, bool buffsReady)
+		=> fruPair && burst && hold && windowIn is > 0f and <= 1f && buffsReady;
+
+	internal static bool ShouldReserveSongWeave(bool p1Minuet, bool balladReady, float downtimeIn, float downtimeEndIn, float gcd)
+		=> p1Minuet && balladReady && downtimeIn >= 0f && downtimeIn <= gcd
+			&& downtimeEndIn is > 0f and < float.MaxValue;
+
+	private bool ReserveFruSongWeave => DataCenter.IsInFRU && DefaultCtSongOrder
+		&& CurrentTarget is { BaseId: 0x459B } && Song == Song.WanderersMinuet
+		&& ShouldReserveSongWeave(true, MagesBalladPvE.CanUse(out _), BMRDowntimeIn, BMRDowntimeEndIn, GCDTime(1));
 
 	internal static float CodaSuccessorStart(float minuetRecast, float downtimeLeft, bool waitForUptime)
 	{
@@ -691,7 +709,8 @@ public class BRD_Reborn : BardRotation
 			return false;
 		}
 
-		if (IsBurst && Song != Song.None && MagesBalladPvE.EnoughLevel)
+		// A song starts the burst; Battle Voice already up commits the remaining buffs even during songless recovery.
+		if (IsBurst && (Song != Song.None || HasBattleVoice) && MagesBalladPvE.EnoughLevel)
 		{
 			// DoTs on the target gate Battle Voice only while nobody else is bursting: on FRU's crystals (fresh ~20s adds)
 			// waiting for Stormbite+Caustic put it 8s behind Arcane Circle and Battle Litany.
@@ -737,16 +756,23 @@ public class BRD_Reborn : BardRotation
 			act = null;
 			return false;
 		}
+		if (ShouldReserveP4BurstWeave(DataCenter.IsInFRU && CurrentTarget is { BaseId: 0x45A9 or 0x45AB },
+			IsBurst, HoldBurst, PlannedBurstIn, !BattleVoicePvE.Cooldown.IsCoolingDown && !RadiantFinalePvE.Cooldown.IsCoolingDown))
+		{
+			act = null;
+			return false;
+		}
+		// One filler may follow the last P1 GCD; leave the second weave for Ballad during downtime.
+		// shortcut: last-action tracking excludes manual items; use the confirmed weave count if they disrupt a live pull.
+		if (ReserveFruSongWeave && !IActionHelper.IsLastActionGCD())
+		{
+			act = null;
+			return false;
+		}
 		// Capped Repertoire goes before the buff wait: a song tick during the wait is lost.
 		if (Repertoire == 3 && PitchPerfectPvE.CanUse(out act, skipAoeCheck: true, skipComboCheck: true))
 		{
 			return true;
-		}
-
-		if (RadiantFinalePvE.EnoughLevel && RadiantFinalePvE.Cooldown.IsCoolingDown && RadiantFinalePvE.Cooldown.WillHaveOneChargeGCD(1)
-			&& BattleVoicePvE.EnoughLevel && !BattleVoicePvE.Cooldown.IsCoolingDown)
-		{
-			return base.AttackAbility(nextGCD, out act);
 		}
 
 		// Two-stack PP before Empyreal: its guaranteed stack plus a coincident song tick overflows the cap.
@@ -757,15 +783,14 @@ public class BRD_Reborn : BardRotation
 				return true;
 			}
 
-			if (TwoStackPPBeforeEmpyreal(Repertoire, EmpyrealArrowPvE.Cooldown.WillHaveOneChargeGCD(), IsBurst, RadiantFinalePvE.Cooldown.IsCoolingDown || HoldBurst))
+			if (TwoStackPPBeforeEmpyreal(Repertoire, EmpyrealArrowPvE.Cooldown.WillHaveOneChargeGCD()))
 			{
 				return true;
 			}
 		}
 
-		// Waits for Raging Strikes only while burst is on; with Auto Burst off Raging Strikes never goes and Empyreal never would.
-		// Same while the burst waits for its planned window: Empyreal would sit for the whole wait.
-		if ((!IsBurst || HoldBurst || RagingStrikesPvE.Cooldown.IsCoolingDown || !RagingStrikesPvE.Cooldown.WillHaveOneCharge(15)) && Song != Song.None && EmpyrealArrowPvE.CanUse(out act))
+		// Usable buffs already took priority above; a blocked burst must not hold Empyreal, including songless FRU returns.
+		if ((Song != Song.None || InCombat) && EmpyrealArrowPvE.CanUse(out act))
 		{
 			return true;
 		}
@@ -841,24 +866,43 @@ public class BRD_Reborn : BardRotation
 
 		TrackDotSnapshots();
 
-		if (UptimeForDoT && IronJawsPvE.CanUse(out act))
+		// Iron Jaws' own 35% Hawk's Eye proc overwrites one already up (60 potency). When the Iron Jaws can wait a GCD, spend the
+		// proc first: the DoTs still outlast the next GCD, or the burst buffs still cover it. 10-15 kills lost both procs this way.
+		// A long Hawk can block IJ's self-status check; only bypass it when the resolved target is actually due.
+		if (UptimeForDoT && (CanUseDoT(IronJawsPvE, out act)
+			|| (HasHawksEye && CanUseDoT(IronJawsPvE, out act, skipStatusProvideCheck: true,
+				refreshWithin: DataCenter.GCDTime(IronJawsPvE.Config.StatusRefreshGcdCount)))))
 		{
+			var jawsTarget = IronJawsPvE.Target.Target;
+			if (HasHawksEye && jawsTarget != null
+				&& Math.Min(jawsTarget.StatusTime(true, StatusID.Stormbite, StatusID.Windbite), jawsTarget.StatusTime(true, StatusID.CausticBite, StatusID.VenomousBite)) > DataCenter.GCDTime(1, 0.5f)
+				&& (ShadowbitePvE.CanUse(out var proc) || RefulgentArrowPvE.CanUse(out proc, skipComboCheck: true)))
+			{
+				act = proc;
+			}
 			return true;
 		}
 
-		if (UptimeForDoT && IronJawsPvE.CanUse(out act, skipStatusProvideCheck: true) && (IronJawsPvE.Target.Target?.WillStatusEnd(30, true, IronJawsPvE.Setting.TargetStatusProvide ?? []) ?? false)
+		if (UptimeForDoT && CanUseDoT(IronJawsPvE, out act, skipStatusProvideCheck: true) && (IronJawsPvE.Target.Target?.WillStatusEnd(30, true, IronJawsPvE.Setting.TargetStatusProvide ?? []) ?? false)
 			&& BurstEndRefreshPays(BuffSnapshotOn(IronJawsPvE.Target.Target), DotSnapshotOn(IronJawsPvE.Target.Target),
-				IronJawsPvE.Target.Target?.StatusTime(true, StatusID.Stormbite, StatusID.Windbite) ?? 0f, IronJawsPvE.Target.Target?.GetTTK() ?? float.NaN))
+				IronJawsPvE.Target.Target?.StatusTime(true, StatusID.Stormbite, StatusID.Windbite) ?? 0f,
+				IronJawsPvE.Target.Target?.GetTTK() ?? float.NaN, BMRDowntimeIn))
 		{
 			if (StatusHelper.PlayerHasStatus(true, StatusID.BattleVoice, StatusID.RadiantFinale, StatusID.RagingStrikes) && StatusHelper.PlayerWillStatusEndGCD(1, 1, true, StatusID.BattleVoice, StatusID.RadiantFinale, StatusID.RagingStrikes))
 			{
+				if (HasHawksEye && !StatusHelper.PlayerWillStatusEndGCD(1, 0.3f, true, StatusID.BattleVoice, StatusID.RadiantFinale, StatusID.RagingStrikes)
+					&& (ShadowbitePvE.CanUse(out var proc) || RefulgentArrowPvE.CanUse(out proc, skipComboCheck: true)))
+				{
+					act = proc;
+				}
 				return true;
 			}
 		}
 
 		// Barrage's Refulgent goes first: Resonant, Apex and Encore keep for 30s (Blast's 10s only starts at Apex), Barrage only 10s.
-		// Top FRU logs fire Refulgent as the next GCD after Barrage in 20 of 27 bursts.
-		if (HasBarrage && (ShadowbitePvE.CanUse(out act) || RefulgentArrowPvE.CanUse(out act, skipComboCheck: true)))
+		// Barraged Refulgent is 840 potency; Shadowbite only wins at three resolved targets (300 each).
+		if (HasBarrage && ((ShadowbitePvE.CanUse(out act) && ShadowbitePvE.Target.AffectedTargets.Length >= 3)
+			|| RefulgentArrowPvE.CanUse(out act, skipComboCheck: true)))
 		{
 			return true;
 		}
@@ -869,12 +913,37 @@ public class BRD_Reborn : BardRotation
 			return true;
 		}
 
+		// Spend Hawk before payloads if Iron Jaws will enter its refresh window next GCD; the P4 pair lost a proc here.
+		if (HasHawksEye && UptimeForDoT && CanUseDoT(IronJawsPvE, out _, skipStatusProvideCheck: true,
+			refreshWithin: DataCenter.GCDTime((uint)IronJawsPvE.Config.StatusRefreshGcdCount + 1, 0.5f))
+			&& IronJawsPvE.Target.Target is { } nextJawsTarget && TargetLivesForDoT(nextJawsTarget))
+		{
+			var dotLeft = Math.Min(nextJawsTarget.StatusTime(true, StatusID.Stormbite, StatusID.Windbite),
+				nextJawsTarget.StatusTime(true, StatusID.CausticBite, StatusID.VenomousBite));
+			if (dotLeft > DataCenter.GCDTime(1, 0.5f)
+				&& dotLeft <= DataCenter.GCDTime((uint)IronJawsPvE.Config.StatusRefreshGcdCount + 1, 0.5f)
+				&& (ShadowbitePvE.CanUse(out act) || RefulgentArrowPvE.CanUse(out act, skipComboCheck: true)))
+			{
+				return true;
+			}
+		}
+
 		// A Hawk's Eye proc blocks Barrage (its Refulgent would eat both). In burst, spend the proc first so Barrage lands in buffs:
 		// at 8:33 the proc sat behind Apex and Encore and held Barrage 17s, out of the window.
 		if (HasRagingStrikes && HasHawksEye && BarragePvE.EnoughLevel && !BarragePvE.Cooldown.IsCoolingDown
 			&& (ShadowbitePvE.CanUse(out act) || RefulgentArrowPvE.CanUse(out act, skipComboCheck: true)))
 		{
 			return true;
+		}
+
+		if (RadiantEncorePvE.CanUse(out act, skipComboCheck: true))
+		{
+			// A standalone Finale (CT) has no Battle Voice coming: Encore on the return's first GCDs, before P4 dies.
+			// Spend Encore before the lower-potency payloads, including when the first burst buff has already faded.
+			if (InBurstStatus || HasRagingStrikes || (HasRadiantFinale && !HasBattleVoice) || StatusHelper.PlayerWillStatusEndGCD(2, 0, true, StatusID.RadiantEncoreReady))
+			{
+				return true;
+			}
 		}
 
 		if (ResonantArrowPvE.CanUse(out act))
@@ -885,15 +954,6 @@ public class BRD_Reborn : BardRotation
 		if (CanUseApexArrow(out act))
 		{
 			return true;
-		}
-
-		if (RadiantEncorePvE.CanUse(out act, skipComboCheck: true))
-		{
-			// A standalone Finale (CT) has no Battle Voice coming: Encore on the return's first GCDs, before P4 dies.
-			if (InBurstStatus || (HasRadiantFinale && !HasBattleVoice) || StatusHelper.PlayerWillStatusEndGCD(2, 0, true, StatusID.RadiantEncoreReady))
-			{
-				return true;
-			}
 		}
 
 		// DoTs before the AoE fillers: with Ladonsbite at 2 targets the P4 pair never got DoTs, and Battle Voice
@@ -914,16 +974,6 @@ public class BRD_Reborn : BardRotation
 			return true;
 		}
 
-		if (LadonsbitePvE.CanUse(out act) && !HasHawksEye && !HasBarrage)
-		{
-			return true;
-		}
-
-		if (QuickNockPvE.CanUse(out act) && !HasHawksEye && !HasBarrage)
-		{
-			return true;
-		}
-
 		if (RefulgentArrowPvE.CanUse(out act, skipComboCheck: true))
 		{
 			return true;
@@ -934,12 +984,23 @@ public class BRD_Reborn : BardRotation
 			return true;
 		}
 
-		if (BurstShotPvE.CanUse(out act) && !HasHawksEye && !HasBarrage)
+		// Proc consumers already took priority; let native status checks decide filler eligibility.
+		if (LadonsbitePvE.CanUse(out act))
 		{
 			return true;
 		}
 
-		if (HeavyShotPvE.CanUse(out act) && !HasHawksEye && !HasBarrage)
+		if (QuickNockPvE.CanUse(out act))
+		{
+			return true;
+		}
+
+		if (BurstShotPvE.CanUse(out act))
+		{
+			return true;
+		}
+
+		if (HeavyShotPvE.CanUse(out act))
 		{
 			return true;
 		}
@@ -952,69 +1013,31 @@ public class BRD_Reborn : BardRotation
 	private bool TryApplyDoT(out IAction? act)
 	{
 		act = null;
-		if (StormbitePvE.EnoughLevel && UptimeForDoT)
-		{
-			if (StormbitePvE.CanUse(out act))
-			{
-				if ((DOTBoss && StormbitePvE.Target.Target.IsBossFromIcon()) || !DOTBoss)
-				{
-					if (StormbitePvE.Target.Target.HasStatus(true, StatusID.Stormbite) == false)
-					{
-						return true;
-					}
-				}
-			}
-		}
-		if (CausticBitePvE.EnoughLevel && UptimeForDoT)
-		{
-			if (CausticBitePvE.CanUse(out act))
-			{
-				if ((DOTBoss && CausticBitePvE.Target.Target.IsBossFromIcon()) || !DOTBoss)
-				{
-					if (CausticBitePvE.Target.Target.HasStatus(true, StatusID.CausticBite) == false)
-					{
-						return true;
-					}
-				}
-			}
-		}
+		if (!UptimeForDoT) return false;
+		return (StormbitePvE.EnoughLevel && CanUseDoT(StormbitePvE, out act))
+			|| (CausticBitePvE.EnoughLevel && CanUseDoT(CausticBitePvE, out act))
+			|| (!StormbitePvE.EnoughLevel && CanUseDoT(WindbitePvE, out act))
+			|| (!CausticBitePvE.EnoughLevel && CanUseDoT(VenomousBitePvE, out act));
+	}
 
-		if (!StormbitePvE.EnoughLevel && UptimeForDoT)
+	private bool CanUseDoT(IBaseAction action, out IAction? act, bool skipStatusProvideCheck = false, float? refreshWithin = null)
+	{
+		var setting = action.Setting;
+		var canTarget = setting.CanTarget;
+		var jaws = action == IronJawsPvE;
+		// Filter before native resolution: a dying or already-dotted first target must not hide another eligible enemy.
+		setting.CanTarget = t => canTarget(t) && TargetLivesForDoT(t)
+			&& (jaws || ((!DOTBoss || t.IsBossFromIcon())
+				&& t.WillStatusEndGCD(0, 0, true, setting.TargetStatusProvide ?? [])))
+			&& (refreshWithin == null || t.WillStatusEnd(refreshWithin.Value, true, setting.TargetStatusProvide ?? []));
+		try
 		{
-			if (WindbitePvE.CanUse(out act))
-			{
-				if ((DOTBoss && WindbitePvE.Target.Target.IsBossFromIcon()) || !DOTBoss)
-				{
-					if (IronJawsPvE.EnoughLevel && WindbitePvE.Target.Target.HasStatus(true, StatusID.Windbite) == false)
-					{
-						return true;
-					}
-					if (!IronJawsPvE.EnoughLevel)
-					{
-						return true;
-					}
-				}
-			}
+			return action.CanUse(out act, skipStatusProvideCheck: skipStatusProvideCheck);
 		}
-		if (!CausticBitePvE.EnoughLevel && UptimeForDoT)
+		finally
 		{
-			if (VenomousBitePvE.CanUse(out act))
-			{
-				if ((DOTBoss && VenomousBitePvE.Target.Target.IsBossFromIcon()) || !DOTBoss)
-				{
-					if (IronJawsPvE.EnoughLevel && VenomousBitePvE.Target.Target.HasStatus(true, StatusID.VenomousBite) == false)
-					{
-						return true;
-					}
-					if (!IronJawsPvE.EnoughLevel)
-					{
-						return true;
-					}
-				}
-			}
+			setting.CanTarget = canTarget;
 		}
-
-		return false;
 	}
 
 	private bool CanUseApexArrow(out IAction act)
@@ -1024,8 +1047,8 @@ public class BRD_Reborn : BardRotation
 			return false;
 		}
 
-		// Defer only to a DoT the rotation can actually apply on its selected target.
-		if (TryApplyDoT(out _))
+		// Fresh P4 targets must not push the two-GCD Apex/Blast payload out of the active burst.
+		if (!InBurstStatus && TryApplyDoT(out _))
 		{
 			return false;
 		}

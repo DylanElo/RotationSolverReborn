@@ -1,0 +1,76 @@
+static class Scenarios {
+ public static int Run(){
+  int failures=0;
+  void Check(string name,bool ok){Console.WriteLine((ok?"PASS ":"FAIL ")+name);if(!ok)failures++;}
+  var target=new IBattleChara{GameObjectId=1}; Boundary.CurrentTarget=target; Boundary.HostileTarget=target;
+  Sync New(){StatusHelper.Statuses[StatusID.ReadyToReawaken]=30;var s=new Sync();s.UncoiledFuryPvE.Available=true;s.SteelFangsPvE.Available=true;return s;}
+  var s=New();var a=s.GCD();Check("free token plus jump chooses Fury on resolved target",a?.ID==ActionID.UncoiledFuryPvE&&s.UncoiledFuryPvE.Target.Target==target);
+  s=New();s.Downtime=100;s.RattlingCoilStacks=2;a=s.GCD();Check("ordinary free-token buff hold keeps melee filler",a?.ID==ActionID.SteelFangsPvE);
+  s=New();s.UncoiledFuryPvE.NativeCheck=()=>false;a=s.GCD();Check("native Fury veto falls through to filler",a?.ID==ActionID.SteelFangsPvE&&s.UncoiledFuryPvE.Attempts>0);
+  s=New();s.UncoiledFuryPvE.Resolve=()=>null;a=s.GCD();Check("unresolved Fury target falls through",a?.ID==ActionID.SteelFangsPvE);
+  s=New();s.UncoiledFuryPvE.IsEnabled=false;a=s.GCD();Check("disabled Fury cannot bypass action eligibility",a?.ID==ActionID.SteelFangsPvE);
+  s=New();s.FinishNormalCombo=true;a=s.GCD();Check("downtime dump preserves endangered normal combo",a?.ID==ActionID.SteelFangsPvE);
+  s=New();s.WillSwiftEnd=true;a=s.GCD();Check("downtime dump preserves personal buff upkeep priority",a?.ID==ActionID.SteelFangsPvE);
+  s=New();s.NoAbilityReady=false;a=s.GCD();Check("pending mandatory followup blocks melee Fury overwrite",a==null);
+  s=New();s.HasHostilesInRange=false;a=s.GCD();Check("ranged Fury preserves resolved-target uptime",a?.ID==ActionID.UncoiledFuryPvE&&s.UncoiledFuryPvE.Target.Target==target);
+  s=New();s.ReawakenPvE.Available=true;a=s.GCD();Check("native-ready Reawaken still respects imminent downtime veto",a?.ID==ActionID.UncoiledFuryPvE);
+  var boss=new IBattleChara{GameObjectId=2};boss.Statuses[StatusID.Debuff]=15;Boundary.HostileTarget=boss;DataCenter.AllHostileTargets=[target,boss];
+  s=New();s.Buffs.Add(new());s.Downtime=100;s.RattlingCoilStacks=2;s.Scan();a=s.GCD();Check("other boss debuff learns cadence without selecting Fury on add",s.Anchor()&&s._activePartyBuffs==0&&a?.ID==ActionID.SteelFangsPvE);
+  Boundary.CurrentTarget=boss;s=New();s.Buffs.Add(new());s.HasReadyToReawaken=false;s.Downtime=100;s.Scan();a=s.GCD();Check("debuff on selected target values Fury and resolves that boss",s._activePartyBuffs==1&&a?.ID==ActionID.UncoiledFuryPvE&&s.UncoiledFuryPvE.Target.Target==boss);
+  Boundary.CurrentTarget=target;s.RattlingCoilStacks=2;s.Scan();a=s.GCD();Check("same-time target switch refreshes overlap and returns to filler",s._activePartyBuffs==0&&s.Anchor()&&a?.ID==ActionID.SteelFangsPvE);
+  Boundary.CurrentTarget=boss;s=New();s.Buffs.Add(new());s.Downtime=100;s.ReawakenPvE.Available=true;s.Scan();a=s.GCD();Check("committed executable Reawaken retains priority over Fury",a?.ID==ActionID.ReawakenPvE&&s.ReawakenPvE.Target.Target==boss);
+  s=New();s.Buffs.Add(new());s.Downtime=100;s.ReawakenPvE.Available=true;s.ReawakenPvE.IsEnabled=false;s.Scan();a=s.GCD();Check("disabled Reawaken falls through without consuming token",a?.ID==ActionID.SteelFangsPvE);
+  s=New();s.Buffs.Add(new());s.Downtime=100;s.ReawakenPvE.Available=true;s.ReawakenPvE.Resolve=()=>null;s.Scan();a=s.GCD();Check("unresolved Reawaken falls through without consuming token",a?.ID==ActionID.SteelFangsPvE);
+  s=New();s.Buffs.Add(new());s.Downtime=100;s.HasReadyToReawaken=false;s.RattlingCoilStacks=2;s.UncoiledFuryPvE.Resolve=()=>target;s.Scan();a=s.GCD();Check("debuffed default cannot qualify an unbuffed resolved Fury candidate",a?.ID==ActionID.SteelFangsPvE&&s.UncoiledFuryPvE.Target.Target==target&&s._activePartyBuffs==1);
+  s=New();s.Buffs.Add(new());s.Downtime=100;s.ReawakenPvE.Available=true;s.ReawakenPvE.Resolve=()=>target;s.Scan();a=s.GCD();Check("debuffed default cannot qualify an unbuffed resolved Reawaken candidate ["+a?.ID+" active="+s._activePartyBuffs+"]",a?.ID==ActionID.SteelFangsPvE&&s.ReawakenPvE.Target.Target==target&&s._activePartyBuffs==1);
+  Boundary.CurrentTarget=target;
+  s=New();s.Buffs.Add(new());s.Downtime=100;s.HasReadyToReawaken=false;s.RattlingCoilStacks=2;s.UncoiledFuryPvE.Resolve=()=>boss;s.Scan();a=s.GCD();Check("buffed native Fury candidate qualifies despite unbuffed default",a?.ID==ActionID.UncoiledFuryPvE&&s.UncoiledFuryPvE.Target.Target==boss&&s._activePartyBuffs==0);
+  s=New();s.Buffs.Add(new());s.Downtime=100;s.ReawakenPvE.Available=true;s.ReawakenPvE.Resolve=()=>boss;s.Scan();a=s.GCD();Check("buffed native Reawaken candidate qualifies despite unbuffed default",a?.ID==ActionID.ReawakenPvE&&s.ReawakenPvE.Target.Target==boss&&s._activePartyBuffs==0);
+  Boundary.CurrentTarget=boss;
+  s=New();s.Buffs.Add(new());s.Downtime=100;s.HasReadyToReawaken=false;s.RattlingCoilStacks=3;s.UncoiledFuryPvE.Resolve=()=>target;s.Scan();a=s.GCD();Check("unbuffed resolved Fury candidate can release capped coils",a?.ID==ActionID.UncoiledFuryPvE&&s.UncoiledFuryPvE.Target.Target==target);
+  s=New();s.Buffs.Add(new());s.UncoiledFuryPvE.Resolve=()=>target;s.Scan();a=s.GCD();Check("unbuffed resolved Fury candidate can dump before jump",a?.ID==ActionID.UncoiledFuryPvE&&s.UncoiledFuryPvE.Target.Target==target);
+  s=New();s.Buffs.Add(new());s.Downtime=100;s.ReawakenPvE.Available=true;s.ReawakenPvE.Resolve=()=>Boundary.Player;s.ReawakenPvE.Target.AffectedTargets=[target];s.Scan();a=s.GCD();Check("self-centred Reawaken values actual affected hostile ["+a?.ID+"]",a?.ID==ActionID.SteelFangsPvE);
+  s=New();s.HasReadyToReawaken=false;s.RattlingCoilStacks=1;a=s.GCD();Check("new free-token exception does not broaden no-token one-coil dump",a?.ID==ActionID.SteelFangsPvE);
+  s=New();s.Buffs.Add(new());s.Downtime=100;s.ReawakenPvE.Available=true;s.ReawakenPvE.Resolve=()=>Boundary.Player;s.ReawakenPvE.Target.AffectedTargets=[boss];s.Scan();a=s.GCD();Check("self-centred native target preserved when affected boss qualifies",a?.ID==ActionID.ReawakenPvE&&s.ReawakenPvE.Target.Target==Boundary.Player);
+  s=New();s.Buffs.Add(new());s.Downtime=100;s.ReawakenPvE.Available=true;s.ReawakenPvE.Resolve=()=>Boundary.Player;s.Scan();a=s.GCD();Check("self-centred action with no affected hostile is withheld",a?.ID==ActionID.SteelFangsPvE);
+  s=New();s.Buffs.Add(new());s.Downtime=100;s.Scan();var first=s.ReadDecision();var cached=s.ReadDecision();Check("actual production Decision cache computes once per unchanged target",first.Burst==VPRSyncPlusBurstGate.Commit&&cached==first&&s.DecisionComputations==1);
+  Boundary.CurrentTarget=target;var switched=s.ReadDecision();Check("actual production Decision cache recomputes at same time after switch",switched.Burst==VPRSyncPlusBurstGate.Hold&&s.DecisionComputations==2);
+  Boundary.CurrentTarget=boss;s=New();s.Buffs.Add(new());s.Downtime=100;s.Scan();s.UncoiledFuryPvE.Target.Target=target;
+  var candidateGate=typeof(Sync).GetMethod("CandidateAllowsBurst",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic);
+  if(candidateGate==null) Check("candidate exception scope exists",false);
+  else try {candidateGate.Invoke(s,[s.UncoiledFuryPvE,(Func<bool>)(()=>throw new InvalidOperationException("candidate callback"))]);Check("candidate exception was raised",false);}
+  catch(System.Reflection.TargetInvocationException e) when(e.InnerException is InvalidOperationException){Check("candidate exception restores target, decision and effective overlap",s._burstCandidateTarget==null&&s._candidateDecision==null&&s._activePartyBuffs==1);}
+  Boundary.CurrentTarget=target;boss.Statuses[StatusID.Debuff]=30;
+  s=New();s.EncounterTime=10;s.Downtime=100;s.ReawakenPvE.Available=true;s.ReawakenPvE.Resolve=()=>boss;s.Buffs.Add(new());s.Buffs.Add(new(){JobAbbr="SCH",Type=StatusType.Buff,Ids=[StatusID.Buff]});
+  a=s.GCD();Check("resolved partial-overlap Reawaken waits at observed party start",a?.ID==ActionID.SteelFangsPvE&&s._activePartyBuffs==0);
+  s.EncounterTime=15.9f;a=s.GCD();Check("resolved partial-overlap Reawaken waits before six-second overlap budget",a?.ID==ActionID.SteelFangsPvE);
+  s.EncounterTime=16;a=s.GCD();Check("resolved partial-overlap Reawaken releases at six seconds rather than maximum hold",a?.ID==ActionID.ReawakenPvE&&s.ReawakenPvE.Target.Target==boss&&s._activePartyBuffs==0);
+  Boundary.CurrentTarget=boss;
+  s=New();s.Buffs.Add(new());s.Downtime=100;s.ReawakenPvE.Available=true;s.ReawakenPvE.Resolve=()=>target;target.TTK=5;target.Statuses[StatusID.Debuff]=30;
+  a=s.GCD();Check("resolved short-lived Reawaken candidate is rejected despite healthy default",a?.ID==ActionID.SteelFangsPvE);target.TTK=1000;
+  s=New();s.Buffs.Add(new());s.Downtime=100;s.ReawakenPvE.Available=true;s.ReawakenPvE.Resolve=()=>target;target.Dying=true;
+  a=s.GCD();Check("resolved dying Reawaken candidate is rejected despite healthy default",a?.ID==ActionID.SteelFangsPvE);target.Dying=false;target.Statuses.Clear();
+  Boundary.CurrentTarget=target;target.TTK=5;
+  s=New();s.Buffs.Add(new());s.Downtime=100;s.ReawakenPvE.Available=true;s.ReawakenPvE.Resolve=()=>boss;
+  a=s.GCD();Check("healthy resolved Reawaken candidate survives short-lived default",a?.ID==ActionID.ReawakenPvE&&s.ReawakenPvE.Target.Target==boss);target.TTK=1000;
+  s=New();s.EncounterTime=10;s.Downtime=100;s.ReawakenPvE.Available=true;s.ReawakenPvE.Resolve=()=>boss;s.Buffs.Add(new());s.Buffs.Add(new(){JobAbbr="SCH",Type=StatusType.Buff,Ids=[StatusID.Buff]});boss.Statuses[StatusID.Debuff]=20;
+  a=s.GCD();Check("actual double Reawaken payload releases before partial buff expires",a?.ID==ActionID.ReawakenPvE);
+  Boundary.CurrentTarget=target;target.Dying=true;target.Statuses[StatusID.Debuff]=30;
+  s=New();s.Buffs.Add(new());s.Downtime=100;s.ReawakenPvE.Available=true;s.ReawakenPvE.Resolve=()=>Boundary.Player;s.ReawakenPvE.Target.AffectedTargets=[target,boss];
+  a=s.GCD();Check("self-centred representative retains affected dying default conservatively",a?.ID==ActionID.SteelFangsPvE);target.Dying=false;target.Statuses.Clear();
+  s=New();s.Buffs.Add(new());s.Downtime=100;s.ReawakenPvE.Available=true;s.ReawakenPvE.Resolve=()=>Boundary.Player;s.ReawakenPvE.Target.AffectedTargets=[target];
+  a=s.GCD();Check("self-centred action cannot borrow debuff from boss outside affected targets",a?.ID==ActionID.SteelFangsPvE&&s._activePartyBuffs==0);
+  Boundary.CurrentTarget=boss;
+  s=New();s.Buffs.Add(new());s.Downtime=100;s.ReawakenPvE.Available=true;s.ReawakenPvE.NativeCheck=()=>throw new InvalidOperationException("native availability");
+  try {s.GCD();Check("native availability exception was raised",false);} catch(InvalidOperationException){Check("native availability exception leaves candidate and buff scope intact",s._burstCandidateTarget==null&&s._candidateDecision==null&&s._activePartyBuffs==1);}
+  Boundary.CurrentTarget=target;
+  Sync PotionReady(){var p=New();p.EncounterTime=360;p.Downtime=100;p.ReawakenPvE.Available=true;p.ReawakenPvE.Resolve=()=>boss;p.Buffs.Add(new());return p;}
+  s=PotionReady();a=s.GCD();var medicine=a==null?null:s.Weave(a);Check("selected buffed native Reawaken gets due potion despite unbuffed default",a?.ID==ActionID.ReawakenPvE&&medicine==s.Potion&&s.PotionAttempts==1&&s._activePartyBuffs==0&&s._candidateDecision==null);
+  s=PotionReady();s.UseSecondBurstMedicine=false;a=s.GCD();medicine=a==null?null:s.Weave(a);Check("candidate-aware potion respects disabled second potion setting",a?.ID==ActionID.ReawakenPvE&&medicine==null&&s.PotionAttempts==0);
+  s=PotionReady();s.EncounterTime=359;a=s.GCD();medicine=a==null?null:s.Weave(a);Check("candidate-aware potion respects earliest configured time",a?.ID==ActionID.ReawakenPvE&&medicine==null&&s.PotionAttempts==0);
+  s=PotionReady();a=s.GCD();s.NoAbilityReady=false;medicine=a==null?null:s.Weave(a);Check("candidate-aware potion cannot overwrite mandatory followup",a?.ID==ActionID.ReawakenPvE&&medicine==null&&s.PotionAttempts==0);
+  s=PotionReady();s.ReawakenPvE.Available=false;a=s.GCD();medicine=a==null?null:s.Weave(a);Check("unselected Reawaken cannot consume potion",a?.ID==ActionID.SteelFangsPvE&&medicine==null&&s.PotionAttempts==0);
+  s=PotionReady();s.PotionAvailable=false;a=s.GCD();medicine=a==null?null:s.Weave(a);Check("candidate-aware potion retains native medicine availability",a?.ID==ActionID.ReawakenPvE&&medicine==null&&s.PotionAttempts==1);
+  return failures==0?0:1;
+ }
+}

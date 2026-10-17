@@ -1,0 +1,61 @@
+static class Scenarios {
+ public static int Run() {
+ int passed=0,failed=0;
+ var nw=new IBattleChara{GameObjectId=1,BaseId=0x45A3,Position=new(100,0,85),Distance=15,CurrentHp=40};
+ var sw=new IBattleChara{GameObjectId=2,BaseId=0x45A3,Position=new(85,0,100),Distance=15,CurrentHp=80};
+ var rest=new IBattleChara{GameObjectId=3,BaseId=0x45A3,Position=new(100,0,115),Distance=15,CurrentHp=90};
+ var veil=new IBattleChara{GameObjectId=4,BaseId=0x45A5,Position=new(100,0,100),Distance=1,CurrentHp=1000};
+ void Reset(){DataCenter.IsInFRU=true;DataCenter.IsPvP=false;Service.Config=new();Player.Job=Job.BRD;nw.CurrentHp=40;nw.Immune=false;nw.IsTargetable=true;nw.Stopped=false;nw.Alliance=false;nw.Party=false;sw.CurrentHp=80;sw.IsTargetable=true;sw.Stopped=false;veil.Wildfire=false;Svc.Objects=[veil,rest,sw,nw];}
+ void Check(string name,ulong expected,params IBattleChara[] candidates){var actual=Selector.Pick(candidates)?.GameObjectId??0;if(actual==expected){passed++;Console.WriteLine("PASS "+name);}else{failed++;Console.WriteLine($"FAIL {name}: expected {expected}, got {actual}");}}
+ Reset();Check("NW before higher HP Ice Veil",1,veil,rest,sw,nw);
+ Reset();Player.Job=Job.MCH;Check("normal MCH chooses NW",1,veil,rest,sw,nw);
+ Reset();Player.Job=Job.VPR;Check("normal VPR chooses NW",1,veil,rest,sw,nw);
+ Reset();Check("ineligible NW cannot block eligible SW",2,veil,rest,sw);
+ Reset();nw.CurrentHp=0;Check("dead NW advances to SW",2,veil,rest,sw);
+ Reset();nw.IsTargetable=false;Check("untargetable NW advances to SW",2,veil,rest,sw);
+ Reset();Service.Config.FilterStopMark2=true;nw.Stopped=true;Check("stop-marked NW advances to SW",2,veil,rest,sw,nw);
+ Reset();nw.CurrentHp=0;sw.CurrentHp=0;Check("remaining crystal before Ice Veil",3,veil,rest);
+ Reset();Check("Ice Veil after crystals removed",4,veil);
+ Reset();Check("empty candidate set",0);
+ Reset();DataCenter.IsInFRU=false;Check("other encounter ordinary HP target",4,veil,rest,sw,nw);
+ Reset();DataCenter.IsInFRU=false;sw.Special=true;Check("other encounter legacy special priority",2,veil,sw,nw);sw.Special=false;
+ Reset();DataCenter.IsInFRU=false;Player.Job=Job.MCH;veil.Wildfire=true;Check("other encounter MCH Wildfire priority",4,veil,nw);
+ Reset();Player.Job=Job.MCH;veil.Wildfire=true;Check("existing Wildfire priority retained",4,veil,rest,sw,nw);
+ Reset();DataCenter.IsInFRU=false;Service.Config.FilterStopMark2=true;veil.Stopped=true;Check("legacy stop filtering",3,veil,rest,sw,nw);veil.Stopped=false;
+ foreach(var mode in Enum.GetValues<TargetingType>()) {
+  Reset();DataCenter.TargetingType=mode;Check("NW priority under "+mode,1,veil,rest,sw,nw);
+  Reset();DataCenter.TargetingType=mode;Check("SW priority with NW excluded under "+mode,2,veil,rest,sw);
+ }
+ DataCenter.TargetingType=TargetingType.HighHP;
+ Reset();nw.CurrentHp=0;sw.CurrentHp=0;rest.CurrentHp=0;Check("removed dead crystals allow Ice Veil",4,veil);
+ Reset();nw.Position=new(103,0,85);Check("strict three-yalm spot boundary falls through to SW",2,veil,rest,sw,nw);nw.Position=new(100,0,85);
+ Reset();nw.Position=new(102.99f,0,85);Check("inside spot tolerance keeps NW",1,veil,rest,sw,nw);nw.Position=new(100,0,85);
+ Reset();Check("null candidate enumerable",0,null!);
+ Reset();
+ var eligible=new[]{veil,rest,sw}.Where(c=>TargetHelper.ValidityCheck(c,[],[])).ToArray();
+ Check("native membership retains targetless SW when NW excluded",2,eligible);
+ Reset();Service.Config.FilterStopMark2=true;
+ eligible=new[]{veil,rest,sw,nw}.Where(c=>TargetHelper.ValidityCheck(c,[],[1])).ToArray();
+ Check("native membership and stop filtering advance to SW",2,eligible);
+
+ Reset();nw.Immune=true;
+ eligible=new[]{veil,rest,sw,nw}.Where(c=>TargetHelper.ValidityCheck(c,[],[])).ToArray();
+ Check("native immune guard removes NW before ranking",2,eligible);
+ Reset();nw.NameId=123;
+ eligible=new[]{veil,rest,sw,nw}.Where(c=>TargetHelper.ValidityCheck(c,[123],[])).ToArray();
+ Check("native blacklist removes NW before ranking",2,eligible);nw.NameId=0;
+ Reset();nw.IsTargetable=false;
+ eligible=new[]{veil,rest,sw,nw}.Where(c=>TargetHelper.ValidityCheck(c,[],[])).ToArray();
+ Check("native untargetable guard advances to SW",2,eligible);
+ Reset();nw.CurrentHp=1;
+ eligible=new[]{veil,rest,sw,nw}.Where(c=>TargetHelper.ValidityCheck(c,[],[])).ToArray();
+ Check("native one-HP immunity guard advances to SW",2,eligible);
+ Reset();DataCenter.IsInFRU=false;
+ eligible=new[]{veil,rest,sw,nw}.Where(c=>TargetHelper.ValidityCheck(c,[],[])).ToArray();
+ Check("outside FRU restrictive targetless membership unchanged",0,eligible);
+ Reset();DataCenter.IsInFRU=false;veil.TargetObject=Player.Object;
+ eligible=new[]{veil,rest,sw,nw}.Where(c=>TargetHelper.ValidityCheck(c,[],[])).ToArray();
+ Check("outside FRU engaged target membership unchanged",4,eligible);veil.TargetObject=null;
+ Console.WriteLine($"RESULT {passed} passed, {failed} failed");return failed==0?0:1;
+ }
+}

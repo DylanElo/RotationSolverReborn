@@ -201,8 +201,16 @@ Check("live tracker invokes the clock-reset predicate", true, trackerCalls.Conta
 var baseRotation = rotation.BaseType!;
 var gcdCalls = Calls(baseRotation.GetMethod("GeneralGCD", BindingFlags.Instance | BindingFlags.NonPublic)!);
 
-Check("base Reawaken consults the override", true, gcdCalls.Contains("get_AllowReawaken"));
-Check("base Fury consults the override on every candidate path", true, gcdCalls.Count(n => n == "get_AllowUncoiledFury") >= 6);
+Check("base Reawaken consults candidate hook", true, gcdCalls.Contains("TryUseReawaken"));
+Check("base Fury consults candidate hook on every candidate path", true, gcdCalls.Count(n => n == "TryUseUncoiledFury") >= 6);
+foreach (var actionHook in new[] { "TryUseReawaken", "TryUseUncoiledFury" })
+{
+    var hook = rotation.GetMethod(actionHook, BindingFlags.Instance | BindingFlags.NonPublic)!;
+    Check("Sync owns " + actionHook, rotation, hook.DeclaringType);
+    var hookCalls = Calls(hook);
+    Check(actionHook + " retains native eligibility and candidate policy", true,
+        hookCalls.Contains("CanUse") && hookCalls.Contains("CandidateAllowsBurst"));
+}
 Check("base Ire consults the override", true,
     Calls(baseRotation.GetMethod("AttackAbility", BindingFlags.Instance | BindingFlags.NonPublic)!).Contains("get_AllowSerpentsIre"));
 foreach (var gateName in new[] { "AllowReawaken", "AllowSerpentsIre", "AllowUncoiledFury" })
@@ -279,7 +287,7 @@ foreach (var gateName in new[] { "AllowReawaken", "AllowUncoiledFury", "AllowVic
 		Calls(rotation.GetProperty(gateName, BindingFlags.Instance | BindingFlags.NonPublic)!.GetMethod!)
 			.Contains("get_FinishNormalCombo"));
 Check("overlap calculation reads planned burst length", true,
-	Calls(rotation.GetProperty("Decision", BindingFlags.Instance | BindingFlags.NonPublic)!.GetMethod!)
+	Calls(rotation.GetMethod("EvaluateBurstDecision", BindingFlags.Instance | BindingFlags.NonPublic)!)
 		.Contains("get_PlannedBurstWindow"));
 Check("actual burst-length property invokes tested policy", true,
 	Calls(rotation.GetProperty("PlannedBurstWindow", BindingFlags.Instance | BindingFlags.NonPublic)!.GetMethod!)
@@ -338,7 +346,7 @@ Check("live Reawaken gate provides free-token state", true,
 	Calls(rotation.GetProperty("ShouldUseReawaken", BindingFlags.Instance | BindingFlags.NonPublic)!.GetMethod!)
 		.Contains("get_HasReadyToReawaken"));
 Check("live snapshot provides free-token state", true,
-	Calls(rotation.GetProperty("Decision", BindingFlags.Instance | BindingFlags.NonPublic)!.GetMethod!)
+	Calls(rotation.GetMethod("EvaluateBurstDecision", BindingFlags.Instance | BindingFlags.NonPublic)!)
 		.Contains("get_HasReadyToReawaken"));
 
 // Compose the scheduler's release with the real paid-gauge veto.
@@ -386,8 +394,11 @@ Check("ready gauge without selected Reawaken cannot trigger potion", false,
 Check("no-target fallback cannot trigger later potion", false,
 	secondMedicine.Invoke(null, [true, 360f, 360f, true, false, false]));
 var emergencyCalls = Calls(rotation.GetMethod("EmergencyAbility", BindingFlags.Instance | BindingFlags.NonPublic)!);
-foreach (var gate in new[] { "ShouldUseSecondMedicine", "get_AllowBurstMedicine", "get_AllowReawaken", "get_NoAbilityReady", "IsTheSameTo", "get_ReawakenPvE", "UseBurstMedicine" })
+foreach (var gate in new[] { "CandidateAllowsBurst", "ShouldUseSelectedBurstMedicine", "get_NoAbilityReady", "IsTheSameTo", "get_ReawakenPvE", "UseBurstMedicine" })
 	Check($"live potion path retains {gate}", true, emergencyCalls.Contains(gate));
+var selectedMedicineCalls = Calls(rotation.GetMethod("ShouldUseSelectedBurstMedicine", BindingFlags.Instance | BindingFlags.NonPublic)!);
+foreach (var gate in new[] { "ShouldUseSecondMedicine", "get_AllowBurstMedicine", "get_AllowReawaken" })
+    Check($"candidate potion policy retains {gate}", true, selectedMedicineCalls.Contains(gate));
 Check("live potion action match does not use object equality", false, emergencyCalls.Contains("Equals"));
 Check("live potion path no longer treats resource readiness as execution", false,
 	emergencyCalls.Contains("get_ReawakenReady"));

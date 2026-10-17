@@ -1,6 +1,6 @@
 # CT, weave integration and native replay validation
 
-This snapshot completes the BRD CT recovery and shared weave-budget integration on top of the MCH changes in `ae7e669e`. It deliberately leaves unrelated BRD proc/DoT, Viper and target-selection work outside this change. Build outputs below are separate from the installed development plugin.
+The snapshot includes BRD CT recovery, shared weave-budget integration, BRD proc/DoT decisions, Viper resolved-target scheduling and FRU crystal targeting on top of the MCH changes in `ae7e669e`. Build outputs below are separate from the installed development plugin.
 
 Run from the repository root with .NET 10 and the existing Dalamud SDK available:
 
@@ -15,6 +15,10 @@ dotnet run --project tests/WeaveBudgetCheck -c Release -- $plugin
 dotnet run --project tests/PlannedMchUtilityWeaveCheck -c Release -- $plugin
 dotnet run --project tests/MCHSyncPolicyCheck -c Release -- $plugin
 dotnet run --project tests/MCHSyncPlusPolicyCheck -c Release -- $plugin
+dotnet run --project tests/VPRSyncPlusPolicyCheck -c Release -- $plugin
+dotnet run --project tests/VPRActionSelectionCheck -c Release
+dotnet run --project tests/RangedActionSelectionCheck -c Release
+dotnet run --project tests/TargetingDecisionCheck -c Release
 dotnet run --project tests/MCHPlanFallbackCheck -c Release
 dotnet run --project tests/RotationConfigLifecycleCheck -c Release
 dotnet $sim --check-mch-queen
@@ -46,5 +50,9 @@ The [native fixture provenance](FightSim/timelines/native-opportunity/README.md)
 The CT checks exercise selected actions and modeled outcomes: confirmed Finale, Coda rebuilding, the P5 Minuet return, subsequent three-Coda Finales and song coverage. The utility replay additionally audits the emitted cast stream against the two-weave limit and recorded mitigation windows. Its window starts are sensitivity inputs anchored to recorded casts, not proof of original BMR state-machine activation times.
 
 WeaveBudgetCheck executes the production budget's request/effect/reservation paths and checks the built plugin's integration call chains. It does not execute Dalamud hooks against a live client. Manual and other-plugin actions are observed; RSR can limit only its own action issuer.
+
+RangedActionSelectionCheck reads matching BRD native defaults when using `--baseline-ref`; current defaults must not leak into that negative control. VPRActionSelectionCheck supports `--source-directory` for exported source comparisons. TargetingDecisionCheck includes the native eligibility and final hostile-selection methods, so excluded or stop-marked crystals cannot influence the action's surviving candidate ranking. Existing explicit priorities, including an owned Wildfire, still apply.
+
+Viper checks establish selected-action correctness against simulated external facts, not whole-fight DPS. Its self-centred multi-target case uses the affected current target as a conservative representative; it does not optimize the lifetime of every enemy in the AoE.
 
 No command above installs or reloads a plugin. Build/test results do not establish native action issuance, pet travel, live phase acceleration or successful plugin loading. All retained MCH replay inputs are wipes.

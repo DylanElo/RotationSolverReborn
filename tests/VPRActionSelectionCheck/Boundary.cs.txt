@@ -1,0 +1,79 @@
+interface IAction { ActionID ID {get;} }
+static class ActionComparison {public static bool IsTheSameTo(this IAction action,bool upgraded,params IAction[] actions)=>actions.Any(a=>a.ID==action.ID);}
+class IBattleChara {
+ public ulong GameObjectId; public bool Boss=true,Dying; public float TTK=1000;
+ public Dictionary<StatusID,float> Statuses=new();
+ public bool HasStatus(bool own, params StatusID[] ids)=>ids.Any(i=>Statuses.GetValueOrDefault(i)>0);
+ public float StatusTime(bool own,params StatusID[] ids)=>ids.Select(i=>Statuses.GetValueOrDefault(i)).DefaultIfEmpty(0).Max();
+ public float GetTTK()=>TTK; public bool IsBossFromIcon()=>Boss; public bool IsBossFromTTK()=>Boss; public bool IsDying()=>Dying;
+}
+interface IBaseAction : IAction { FakeTarget Target {get;} }
+class FakeTarget { public IBattleChara? Target; public IBattleChara[] AffectedTargets=[]; }
+class FakeCooldown {
+ public int CurrentCharges=1; public float RecastTimeRemainOneCharge=100;
+ public bool WillHaveOneCharge(float t)=>true; public bool ElapsedAfter(float t)=>false; public bool JustUsedAfter(float t)=>true;
+}
+class FakeAction : IBaseAction {
+ public ActionID ID {get;} public bool EnoughLevel=true,IsEnabled=true,Available; public FakeCooldown Cooldown=new(); public FakeTarget Target {get;}=new();
+ public Func<IBattleChara?> Resolve=()=>Boundary.CurrentTarget; public Func<bool> NativeCheck=()=>true; public int Attempts;
+ public FakeAction(ActionID id)=>ID=id;
+ public bool CanUse(out IAction? act,bool usedUp=false,bool skipTTKCheck=false,bool skipComboCheck=false,bool skipStatusProvideCheck=false,bool skipAoeCheck=false) {
+  Attempts++; Target.Target=Resolve(); var ok=Available&&EnoughLevel&&IsEnabled&&Target.Target!=null&&NativeCheck(); act=ok?this:null; return ok;
+ }
+}
+enum EnemyPositional{Flank,Rear}
+enum StatusType{Buff,Debuff}
+class StatusInfo {public string JobAbbr="NIN",Name="debuff"; public StatusType Type=StatusType.Debuff;public StatusID[] Ids=[StatusID.Debuff];}
+static class StatusHelper {
+ public static Dictionary<StatusID,float> Statuses=new();
+ public static bool PlayerHasStatus(bool own,params StatusID[] ids)=>ids.Any(i=>Statuses.GetValueOrDefault(i)>0);
+ public static float PlayerStatusTime(bool own,params StatusID[] ids)=>ids.Select(i=>Statuses.GetValueOrDefault(i)).DefaultIfEmpty(0).Max();
+ public static bool PlayerWillStatusEnd(float t,bool own,params StatusID[] ids)=>PlayerStatusTime(own,ids)<=t;
+}
+static class DataCenter {public static List<IBattleChara> AllHostileTargets=new();}
+static class Svc { public static Logger Log=new(); public class Logger {public void Info(string s){}} }
+class Trait {public bool EnoughLevel=true;}
+class Boundary {
+ // ACTIONS
+ public bool AbilityPrio2=true,NoAbilityReady=true,UFGhosting=true,HasHostilesInRange=true,HasReadyToReawaken=true,IsBurst=true;
+ public bool WillSwiftEnd,WillHunterEnd,MedicineUncoiledFury=true,BurstUncoiledFuryHold=true,FinishNormalCombo;
+ public bool PitActive,HasHunterAndSwift=true,IsSwift=true,IsHunter=true,HasGrimHunter,HasGrimSkin,DreadActive,HasHindstung,HasHindsbane,HasFlankstung,HasFlanksbane,HasSteel,HasReavers;
+ public bool HasHuntersVenom,HasSwiftskinsVenom,HasHind,HasFlank; public const float ReawakenExecutionWindow=9.5f;
+ public bool SynchronizePartyBurst=true,ReawakenReady=true,TimelineAvailable=true;
+ public bool ReserveBurst,TimelineEnabled=true; public float DowntimeIn=>Downtime; public float BMRVulnerableIn=float.MaxValue,BMRVulnerableEndIn=float.MaxValue,LookAheadSeconds=8,MaximumBurstHoldSeconds=30,OverlapWaitSeconds=6; public bool FullPartyBurstActive=>_expectedPartyBuffsCount>0&&_activePartyBuffs>=_expectedPartyBuffsCount; public VPRSyncPlusPlan SyncPlusBurstPlan;
+ public float SwiftTime=50,HuntersTime=50,SwiftTimer=10,HuntersTimer=10,ReawakenDelayTimer=75,LiveComboTime=28,EncounterTime=100,Downtime=5;
+ public int AnguineTributeStacks,SerpentOffering=50,RattlingCoilStacks=3,MaxRattling=3,MaxUncoiledStacksUser=3,_coilChoice;
+ public Trait SerpentsLineageTrait=new(); public string? HunterOrSwiftEndsFirst="Equal";
+ public float? SecondsUntilExpectedPartyBurst=5;
+ public static IBattleChara? CurrentTarget,HostileTarget,Player=new();
+ public IBattleChara? _burstCandidateTarget; public VPRSyncPlusDecision? _candidateDecision; public IBattleChara? SchedulerTarget=>_burstCandidateTarget??CurrentTarget??HostileTarget;
+
+ public VPRSyncPlusDecision _decision=VPRSyncPlusDecision.Default; public float _decisionComputedAt=float.MinValue; public bool _decisionComputedInCombat; public ulong _decisionComputedTarget; public bool LogBurstReport; public string _pendingBurstReason="",_lastReportedReasonKey=""; public int _pendingBurstActiveBuffs,_pendingBurstExpectedBuffs,DecisionComputations;
+ public void UpdateDungeonTracker(){} public void RecordBurstCasts(){DecisionComputations++;} public void LogRotationState(){}
+ public const float PartyBurstCycle=120; public float _lastEncounterTime=-1,_partyBurstStartedAt=-1,_anchorWorthyStartedAt=-1,_burstReadyAt=-1,_totalHeldSeconds,_lastObservedPartyBurstAt=-1; public int _observedPartyBurstCycle; public string _lastRotationState=""; public bool _partyBurstWasActive,_anchorWasWorthy,_burstWasReady,HasReawakenedActive; public void ReportFight(){}
+ public VPRSyncPlusDecision ReadDecision()=>(VPRSyncPlusDecision)GetType().GetProperty("Decision",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.GetValue(this)!;
+ public bool PartyBurstActive=>_activePartyBuffs>0;
+ public int _activePartyBuffs,_expectedPartyBuffsCount,_activeAnchorJobs,_expectedAnchorJobs,_lastPartyBuffScanVersion=-1,PartyBuffsVersion;
+ public float _lastPartyBuffScanAt=-1,_shortestActivePartyBuffRemaining;
+ public ulong _lastPartyBuffScanTarget;
+ public bool _lastPartyBuffScanInCombat,_anchorJobActive,InCombat=true;
+ public string _expectedPartyBuffs=""; public List<StatusInfo> Buffs=new(); public HashSet<StatusInfo> _observedPartyBuffs=new();
+ public VPRSyncPlusAnchorJob AnchorJob;
+ public bool UseSecondBurstMedicine=true,PotionAvailable=true; public float SecondMedicineTime=360; public int PotionAttempts;
+ public FakeAction Potion=new(ActionID.None);
+ protected virtual bool AllowBurstMedicine=>true;
+ public bool UseBurstMedicine(out IAction? a){PotionAttempts++;a=PotionAvailable?Potion:null;return a!=null;}
+ protected virtual bool EmergencyAbility(IAction next,out IAction? a){a=null;return false;}
+ public IAction? Weave(IAction next){EmergencyAbility(next,out var a);return a;}
+ public void StatusList(){}
+ public bool DowntimeWithin(float t)=>Downtime<t;
+ public bool IsNoActionCombo()=>true;
+ public bool IsLastComboAction(params ActionID[] ids)=>false;
+ public bool IsLastGCD(bool upgraded,params FakeAction[] actions)=>false;
+ public bool CanHitPositional(EnemyPositional p,IBattleChara t)=>true;
+ public float GCDTime(int n)=>n*2.14f;
+ protected virtual bool GeneralGCD(out IAction? a){a=null;return false;}
+ public IAction? GCD(){GeneralGCD(out var a);return a;}
+ public void Scan()=>GetType().GetMethod("UpdateExpectedPartyBuffs",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.Invoke(this,null);
+ public bool Anchor()=> (bool)GetType().GetMethod("IsAnchorWorthy",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)!.Invoke(this,null)!;
+}

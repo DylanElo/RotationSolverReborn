@@ -177,6 +177,8 @@ public partial class BardRotation
 	static partial void ModifyStraightShotPvE(ref ActionSetting setting)
 	{
 		setting.StatusNeed = [StatusID.HawksEye_3861, StatusID.Barrage];
+		// Proc consumers can spend a live status without the default two-GCD refresh margin.
+		setting.CreateConfig = () => new() { StatusRefreshGcdCount = 0 };
 	}
 
 	static partial void ModifyRagingStrikesPvE(ref ActionSetting setting)
@@ -196,6 +198,7 @@ public partial class BardRotation
 		{
 			TimeToKill = 0,
 			IsRestrictedDOT = true,
+			StatusRefreshGcdCount = 0,
 		};
 	}
 
@@ -225,6 +228,7 @@ public partial class BardRotation
 		setting.CreateConfig = () => new ActionConfig()
 		{
 			AoeCount = 3,
+			StatusRefreshGcdCount = 0,
 		};
 	}
 
@@ -236,6 +240,7 @@ public partial class BardRotation
 		{
 			TimeToKill = 0,
 			IsRestrictedDOT = true,
+			StatusRefreshGcdCount = 0,
 
 		};
 	}
@@ -355,6 +360,7 @@ public partial class BardRotation
 		{
 			TimeToKill = 0,
 			IsRestrictedDOT = true,
+			StatusRefreshGcdCount = 0,
 		};
 	}
 
@@ -366,6 +372,7 @@ public partial class BardRotation
 		{
 			TimeToKill = 0,
 			IsRestrictedDOT = true,
+			StatusRefreshGcdCount = 0,
 		};
 	}
 
@@ -382,6 +389,7 @@ public partial class BardRotation
 	{
 		setting.StatusNeed = [StatusID.HawksEye_3861, StatusID.Barrage];
 		setting.UnlockedByQuestID = 68430;
+		setting.CreateConfig = () => new() { StatusRefreshGcdCount = 0 };
 	}
 
 	static partial void ModifyShadowbitePvE(ref ActionSetting setting)
@@ -390,6 +398,7 @@ public partial class BardRotation
 		setting.CreateConfig = () => new ActionConfig()
 		{
 			AoeCount = 3,
+			StatusRefreshGcdCount = 0,
 		};
 	}
 

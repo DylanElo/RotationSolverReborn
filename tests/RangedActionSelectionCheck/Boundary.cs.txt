@@ -1,7 +1,9 @@
 interface IAction { ActionID ID { get; } }
-interface IBaseAction : IAction { FakeCooldown Cooldown {get;} FakeTarget Target {get;} }
+static class IActionHelper { public static bool LastWasGcd; public static bool IsLastActionGCD()=>LastWasGcd; }
+interface IBaseAction : IAction { FakeCooldown Cooldown {get;} FakeTarget Target {get;} FakeSetting Setting {get;} FakeConfig Config {get;} bool CanUse(out IAction? act,bool usedUp=false,bool skipTTKCheck=false,bool skipComboCheck=false,bool skipStatusProvideCheck=false,bool skipAoeCheck=false); }
 interface IGameObject { Vector3 Position {get;} }
 class IBattleChara : IGameObject {
+ public uint BaseId;
  public ulong GameObjectId=1; public Vector3 Position {get;set;} = new(0,0,10); public float HitboxRadius=1;
  public bool Boss=true; public float TTK=1000; public Dictionary<StatusID,float> Statuses=new();
  public bool HasStatus(bool own, params StatusID[] ids)=>ids.Any(i=>Statuses.GetValueOrDefault(i)>0);
@@ -14,26 +16,35 @@ class FakeCooldown {
  public int CurrentCharges=1, MaxCharges=1; public float RecastTimeRemain,RecastTimeElapsed;
  public bool IsCoolingDown=>RecastTimeRemain>0; public bool HasOneCharge=>CurrentCharges>0;
  public bool WillHaveOneCharge(float seconds)=>CurrentCharges>0||RecastTimeRemain<=seconds;
+ public bool WillHaveOneChargeGCD(uint n=0,float offset=0)=>WillHaveOneCharge(DataCenter.DefaultGCDRemain+n*2.5f+offset);
  public bool WillHaveXCharges(int n,float seconds)=>CurrentCharges>=n||RecastTimeRemain<=seconds;
 }
 class FakeTarget { public IBattleChara? Target=new(); public IBattleChara[] AffectedTargets=[]; }
 class FakeInfo { public bool Learned=true,EnoughLevel=true; public Func<bool> Eligibility=()=>true; public bool BasicCheck(bool a,bool b,bool c,bool d)=>Learned&&Eligibility(); public bool EnoughLevelAndQuest()=>Learned; }
-class FakeConfig {public float TimeToKill=0;}
+class FakeConfig {public float TimeToKill=0; public byte StatusRefreshGcdCount=2; public int AoeCount=1; public bool IsRestrictedDOT;}
+class ActionConfig : FakeConfig {}
 class FakeTargetInfo {public FakeTarget Resolved=new();public FakeTarget FindTarget(bool a,bool b,bool c,object? d)=>Resolved;}
-class FakeSetting { public StatusID[]? TargetStatusProvide; }
+class FakeSetting { public StatusID[]? TargetStatusProvide,StatusNeed,StatusProvide; public Func<ActionConfig>? CreateConfig; public uint UnlockedByQuestID; public Func<IBattleChara,bool> CanTarget=t=>true; }
 class FakeAction : IBaseAction {
  public ActionID ID {get;} public FakeCooldown Cooldown {get;}=new(); public FakeTarget Target {get;}=new();
- public FakeInfo Info=new(); public FakeSetting Setting=new(); public FakeConfig Config=new();public FakeTargetInfo TargetInfo=new();public bool EnoughLevel=true,IsEnabled=true,Available;
+ public FakeInfo Info=new(); public FakeSetting Setting {get;set;}=new(); public FakeConfig Config {get;set;}=new();public FakeTargetInfo TargetInfo=new();public bool EnoughLevel=true,IsEnabled=true,Available,ThrowOnUse;
  public Func<bool,bool>? StatusCheck;
- public FakeAction(ActionID id){ID=id;Info.Eligibility=()=>IsEnabled&&EnoughLevel;}
- public bool CanUse(out IAction? act,bool usedUp=false,bool skipTTKCheck=false,bool skipComboCheck=false,bool skipStatusProvideCheck=false) {
+ public IBattleChara[]? NativeCandidates;
+ public FakeAction(ActionID id){ID=id;Info.Eligibility=()=>IsEnabled&&EnoughLevel;Setting.TargetStatusProvide=id switch {ActionID.IronJawsPvE=>[StatusID.Stormbite,StatusID.Windbite,StatusID.CausticBite,StatusID.VenomousBite],ActionID.StormbitePvE=>[StatusID.Stormbite],ActionID.CausticBitePvE=>[StatusID.CausticBite],ActionID.WindbitePvE=>[StatusID.Windbite],ActionID.VenomousBitePvE=>[StatusID.VenomousBite],_=>null};}
+ public bool CanUse(out IAction? act,bool usedUp=false,bool skipTTKCheck=false,bool skipComboCheck=false,bool skipStatusProvideCheck=false,bool skipAoeCheck=false) {
+  if(ThrowOnUse)throw new InvalidOperationException("simulated native failure");
   var ok=Available&&IsEnabled&&EnoughLevel&&Info.EnoughLevelAndQuest()&&Cooldown.WillHaveOneCharge(DataCenter.DefaultGCDRemain)
    && (skipTTKCheck||DataCenter.AverageTTK>=Config.TimeToKill)
-   && (StatusCheck?.Invoke(skipStatusProvideCheck)??true); act=ok?this:null; return ok;
+   && (Setting.StatusNeed==null||!StatusHelper.PlayerWillStatusEnd(Config.StatusRefreshGcdCount*2.5f,true,Setting.StatusNeed))
+   && (skipStatusProvideCheck||Setting.StatusProvide==null||StatusHelper.PlayerWillStatusEnd(Config.StatusRefreshGcdCount*2.5f,true,Setting.StatusProvide))
+   && (StatusCheck?.Invoke(skipStatusProvideCheck)??true);
+  if(ok&&NativeCandidates!=null){var target=NativeCandidates.FirstOrDefault(t=>Setting.CanTarget(t)&&(skipStatusProvideCheck||Setting.TargetStatusProvide==null||t.WillStatusEndGCD(Config.StatusRefreshGcdCount,0,true,Setting.TargetStatusProvide)));ok=target!=null;if(ok)Target.Target=target;}
+  else if(ok&&Target.Target!=null)ok=Setting.CanTarget(Target.Target);
+  act=ok?this:null; return ok;
  }
 }
 static class Actions { public static bool IsTheSameTo(this IAction a,bool upgraded,params IAction[] b)=>b.Any(x=>x.ID==a.ID); }
-static class DataCenter { public static float DefaultGCDRemain=0,CalculatedActionAhead=.5f,AverageTTK=1000; }
+static class DataCenter { public static bool IsInFRU; public static float DefaultGCDRemain=0,CalculatedActionAhead=.5f,AverageTTK=1000; public static float GCDTime(uint n=0,float o=0)=>n*2.5f+o; }
 enum Song {None,WanderersMinuet,MagesBallad,ArmysPaeon}
 enum StatusType {Buff,Debuff}
 class StatusInfo {public string Name="",JobAbbr="";public StatusType Type;public StatusID[] Ids=[];}
@@ -41,7 +52,7 @@ static class StatusHelper {
  public static Dictionary<StatusID,float> Statuses=new();
  public static bool PlayerHasStatus(bool own,params StatusID[] ids)=>ids.Any(i=>Statuses.GetValueOrDefault(i)>0);
  public static bool PlayerWillStatusEnd(float t,bool own,params StatusID[] ids)=>ids.Where(Statuses.ContainsKey).Select(i=>Statuses[i]).DefaultIfEmpty(0).Min()<=t;
- public static bool PlayerWillStatusEndGCD(int n,int o,bool own,params StatusID[] ids)=>PlayerWillStatusEnd(n*2.5f+o,own,ids);
+ public static bool PlayerWillStatusEndGCD(int n,float o,bool own,params StatusID[] ids)=>PlayerWillStatusEnd(n*2.5f+o,own,ids);
 }
 enum MCHSyncPlusWildfireWeave { EveryBurst, Other }
 class Boundary {
@@ -55,6 +66,10 @@ class Boundary {
  public float SoulVoice,SoulVoiceConfig=100,BMRDowntimeIn=1000,WeaponRemain=1,WildfireLateWeaveWindow=.8f,WildfirePayloadWindow=10,LiveComboTime,Heat;
  public float _hyperchargeStallStartedAt=-1,MaximumHyperchargeStall=2;
  public bool InBurstStatus;
+ public bool HoldBurst,PartyRaidBuffUp,BurstSkipsTTK,DOTBarrage,PotionNow,PotionBeforeBurst,ReserveCtCodaWeave,ReserveCtPaeon;
+ public bool DefaultCtSongOrder=true; public float BMRDowntimeEndIn=1000;
+ public float PlannedBurstIn;
+ public int Repertoire,BloodletterMax=3; public float BuffAlignment=1;
  public int _finaleCodas; public Dictionary<string,float> BuffWeights=new(){{"Synthetic",.30f}};
  public List<StatusInfo> Buffs=new(); public List<Song> Coda=new(); public Song Song; public bool InCombat=true;
  public Dictionary<ulong,(float Remain,float Snapshot)> _dots=new();
@@ -64,6 +79,9 @@ class Boundary {
  public bool UptimeForDoT=>BMRDowntimeIn>=8;
  public float GCDTime(int n)=>n*2.5f;
  public bool SongEndAfter(float s)=>false;
+ public bool SongAbility(out IAction? a){a=null;return false;}
+ public bool BetterBloodletterLogic(out IAction? a){a=null;return false;}
+ public bool UseBurstMedicine(out IAction? a){a=null;return false;}
  public bool ShouldHoldTool(IAction a)=>Held.Contains(a.ID);
  public bool IsLastAction(bool upgraded,params IAction[] a)=>a.Any(x=>x.ID==LastAction);
  public bool IsLastGCD(bool upgraded,params IAction[] a)=>a.Any(x=>x.ID==LastGCD);
@@ -74,6 +92,8 @@ class Boundary {
  public float StallElapsed()=>0;
  protected virtual bool GeneralGCD(out IAction? a){a=null;return false;}
  protected virtual bool AttackAbility(IAction next,out IAction? a){a=null;return false;}
+ protected virtual bool EmergencyAbility(IAction next,out IAction? a){a=null;return false;}
  public IAction? GCD(){GeneralGCD(out var a);return a;}
  public IAction? OGCD(IAction next){AttackAbility(next,out var a);return a;}
+ public IAction? Weave(IAction next){if(EmergencyAbility(next,out var a))return a;AttackAbility(next,out a);return a;}
 }
