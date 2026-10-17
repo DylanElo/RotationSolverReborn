@@ -487,11 +487,12 @@ public class BRD_Reborn : BardRotation
 		if (InCombat && IsBurst && ShouldUseStandaloneFinale(ctDowntime, ctReturnIn,
 				Coda.Count(s => s != Song.None), BattleVoicePvE.Cooldown.IsCoolingDown)
 			// No hostiles reads as 0s TTK, under Finale's 10s threshold: without the skip this never fired.
-			&& DefaultCtSongOrder && Song == Song.WanderersMinuet
-			&& CanRecoverCtPaeon(ArmysPaeonPvE.Cooldown.RecastTimeRemain, ctReturnIn)
 			&& RadiantFinalePvE.CanUse(out act, skipTTKCheck: true))
 		{
-			_ctFinaleSelected = true;
+			// Coda recovery needs Minuet in CT (10-17: Ballad/Paeon there blocked the Finale in both pulls); otherwise a plain
+			// Finale as in the 10-16 kill, and CodaGrab refills Codas in the P4->P5 gap.
+			_ctFinaleSelected = DefaultCtSongOrder && Song == Song.WanderersMinuet
+				&& CanRecoverCtPaeon(ArmysPaeonPvE.Cooldown.RecastTimeRemain, ctReturnIn);
 			_ctRecoveryPpDrained = false;
 			return true;
 		}

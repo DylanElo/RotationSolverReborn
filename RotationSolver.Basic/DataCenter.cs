@@ -565,20 +565,23 @@ internal static class DataCenter
 	public static bool InCombat { get; set; } = false;
 
 	internal static WeaveBudget Weaves { get; } = new();
-	internal static bool WeaveLimitReached => InCombat && Weaves.Exhausted;
+	// No hostiles means no GCD to clip, and the cap only reopens on a GCD: in FRU CT it swallowed the Finale behind BMR's
+	// Troubadour + Arm's Length (10-17).
+	private static bool WeaveCapActive => InCombat && AllHostileTargets.Count > 0;
+	internal static bool WeaveLimitReached => WeaveCapActive && Weaves.Exhausted;
 	internal static HashSet<uint> BMRReservedUtilityActions { get; } = [];
 	internal static bool BMRUtilityGcdHold { get; set; }
 	internal static bool BMRUtilityAbilityHold { get; set; }
 	private static int ReservedBmrUtilitySlots => BMRUtilityAbilityHold ? 2 : BMRReservedUtilityActions.Count;
 
 	internal static bool IsBlockedByWeaveLimit(IAction action)
-		=> InCombat && ((BMRUtilityGcdHold && !Weaves.Exhausted && action is IBaseAction held && held.Info.IsRealGCD)
+		=> WeaveCapActive && ((BMRUtilityGcdHold && !Weaves.Exhausted && action is IBaseAction held && held.Info.IsRealGCD)
 			|| Weaves.ShouldBlock(action is IBaseAction gcd && gcd.Info.IsRealGCD,
 			action is IBaseAction mudra && mudra.Setting.IsMudra,
 			ReservedBmrUtilitySlots, BMRReservedUtilityActions.Contains(action.AdjustedID)));
 
 	internal static bool TryUseWithinWeaveLimit(IAction action)
-		=> !IsBlockedByWeaveLimit(action) && Weaves.TryUse(InCombat, action is IBaseAction gcd && gcd.Info.IsRealGCD,
+		=> !IsBlockedByWeaveLimit(action) && Weaves.TryUse(WeaveCapActive, action is IBaseAction gcd && gcd.Info.IsRealGCD,
 			action is IBaseAction mudra && mudra.Setting.IsMudra, action.AdjustedID, action.Use,
 			ReservedBmrUtilitySlots, BMRReservedUtilityActions.Contains(action.AdjustedID), Environment.TickCount64 / 1000d);
 
