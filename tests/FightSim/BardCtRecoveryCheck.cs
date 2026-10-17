@@ -54,20 +54,23 @@ internal static class BardCtRecoveryCheck
 		Game.Execute(first!);
 		Game.Step(.7f);
 		Bard.Gauge.Repertoire = 1;
-		Require(Select(delayed)?.ID == (uint)ArmysPaeonPvE, "new Repertoire after a confirmed PP must not postpone Army again");
+		Require(Select(delayed) == null, "CT recovery must keep a running Minuet and its Repertoire for the pair's return");
+		Game.Step(781f - Game.Now - 1f);
+		Require(Select(delayed)?.ID == (uint)MagesBalladPvE, "new Repertoire after a confirmed PP must not postpone the Codas past Minuet's last GCD");
 
 		var expired = Reset(true, true, false);
 		Bard.Gauge.Repertoire = 0;
+		Require(Select(expired) == null, "confirmed CT recovery holds a running Minuet until its last GCD");
+		Game.Step(781f - Game.Now - 1f);
+		var ballad = Select(expired);
+		Require(ballad?.ID == (uint)MagesBalladPvE, "pending CT Ballad must recover at Minuet's last GCD despite the late Minuet and expired Finale");
+		Game.Execute(ballad!);
+		Game.Step(.7f);
 		var army = Select(expired);
 		Require(army?.ID == (uint)ArmysPaeonPvE, "confirmed CT recovery must survive Radiant Finale expiry");
 		Game.Execute(army!);
-		Game.Step(22.1f); // P4 is gone; Minuet remains 3.79s later than the known P5 return.
-		Require(Game.DowntimeEndIn is > 0f and < 75f, "fixture exposes the known P5 return rather than unknown downtime");
 		Require(Game.Cooldown(TheWanderersMinuetPvE).FullAt - Game.Now > Game.DowntimeEndIn + 2.5f,
 			"fixture reproduces the live Minuet cooldown outside the generic grab allowance");
-		var ballad = Select(expired);
-		Require(ballad?.ID == (uint)MagesBalladPvE, "pending CT Ballad must recover despite the late Minuet and expired Finale");
-		Game.Execute(ballad!);
 		Game.Step(853.1f - Game.Now);
 		Require(Select(expired) == null, "P5 return must not start Minuet before its cooldown finishes");
 		Game.Step(856.81f - Game.Now);

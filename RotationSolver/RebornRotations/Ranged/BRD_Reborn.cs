@@ -718,6 +718,9 @@ public class BRD_Reborn : BardRotation
 		}
 		if (ctRecovery && !_ctRecoveryPpDrained && Song == Song.WanderersMinuet && Repertoire > 0
 			&& PitchPerfectPvE.CanUse(out act, skipAoeCheck: true, skipComboCheck: true)) return true;
+		// CT recovery only rebuilds the Codas: a running Minuet (and its Repertoire) is kept to its last GCD, as top logs do.
+		// Switching at the Stun threw away ~20s of Minuet and its Pitch Perfects when the pair returned (FightSim zX9LjrWh3v1F8AMQ#12 P4 -3.4%).
+		if (ctRecovery && Song == Song.WanderersMinuet && !SongEndAfterGCD(1)) return false;
 		var minuetRecast = TheWanderersMinuetPvE.Cooldown.IsCoolingDown ? TheWanderersMinuetPvE.Cooldown.RecastTimeRemain : 0f;
 		var waitForUptime = WaitForP5Minuet;
 		var successorStart = CodaSuccessorStart(minuetRecast, downtimeLeft, waitForUptime);

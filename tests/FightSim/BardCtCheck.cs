@@ -24,6 +24,9 @@ internal static class BardCtCheck
 		if (ctFinales == 1)
 			Require(Game.Casts.Any(c => c.Action == "RadiantEncorePvE" && c.Time >= ctEnd && c.Time < p4End),
 				"CT Encore must land before the P4 kill");
+		if (ctFinales == 1)
+			Require(Game.Casts.Any(c => c.Action == "PitchPerfectPvE" && c.Time >= ctEnd && c.Time < p4End),
+				"CT recovery must keep Minuet so Pitch Perfect lands when the pair returns");
 		var finales = Game.Casts.Where(c => c.Action.StartsWith("RadiantFinalePvE") && c.Time >= p5).ToList();
 		Require(finales.Count == 3 && finales.All(c => c.Action == "RadiantFinalePvE (3 Codas)"),
 			"all three P5 Finales must retain three Codas");
