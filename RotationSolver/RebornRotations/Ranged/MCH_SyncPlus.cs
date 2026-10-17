@@ -882,7 +882,9 @@ public class MCH_SyncPlus : MCH_Reborn
 		=> MCHSyncPlusPolicy.ShouldUseHypercharge(
 			// Keep the earlier phase-objective policy; P4 also reserves a paid payload for Pandora below.
 			// A capped gauge can still spend when a full Hypercharge has time to land.
-			ObjectiveCarries ? BankingTools && !(Heat == 100 && TargetTimeLeft > HyperchargePayloadWindow) : TargetDying,
+			ObjectiveCarries ? BankingTools && !(Heat == 100 && TargetTimeLeft > HyperchargePayloadWindow)
+				// Final kill: Heat left at death is wasted; two Blazing Shots still land in 3s.
+				: TargetDying && !(FinalKillIn >= 3f),
 			HasWildfire,
 			DowntimeWithin(GCDTime(3)),
 			Decision.Downtime == MCHSyncPlusDowntimeAction.HoldCeiling,

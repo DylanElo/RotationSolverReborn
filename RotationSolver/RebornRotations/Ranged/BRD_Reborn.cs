@@ -570,6 +570,9 @@ public class BRD_Reborn : BardRotation
 			if (FirstSong == SongTrack.WanderersMinuet && currentSongTrack != SongTrack.WanderersMinuet
 				&& nextSongTrack != SongTrack.WanderersMinuet && HasHostilesInMaxRange
 				&& currentSongAction.Cooldown.ElapsedAfter(10) && !TrySongTrackAction(nextSongTrack, out _)
+				// ...and only if that song is back when Minuet ends (one GCD of slack: the no-song wait covers it),
+				// else the cut just moves the gap after Minuet.
+				&& SongTrackAction(nextSongTrack).Cooldown.WillHaveOneCharge(45f + GCDTime(1))
 				&& TrySongTrackAction(SongTrack.WanderersMinuet, out act))
 			{
 				return true;
@@ -746,8 +749,13 @@ public class BRD_Reborn : BardRotation
 			|| RadiantFinalePvE.CanUse(out act, skipTTKCheck: true)
 			|| RagingStrikesPvE.CanUse(out act, skipTTKCheck: true)
 			|| (!HasHawksEye && BarragePvE.CanUse(out act, skipTTKCheck: true)))) return true;
-		return SidewinderPvE.CanUse(out act, skipTTKCheck: true)
-			|| (left <= 3.5f && Repertoire > 0 && PitchPerfectPvE.CanUse(out act, skipAoeCheck: true, skipComboCheck: true))
+		// Biggest first: a capped (or last-tick) Pitch Perfect and Empyreal before Sidewinder and the shared charges.
+		return ((Repertoire == 3 || (Repertoire > 0 && (left <= 3.5f
+				|| TwoStackPPBeforeEmpyreal(Repertoire, EmpyrealArrowPvE.Cooldown.WillHaveOneChargeGCD()))))
+				&& PitchPerfectPvE.CanUse(out act, skipAoeCheck: true, skipComboCheck: true))
+			|| EmpyrealArrowPvE.CanUse(out act, skipTTKCheck: true)
+			|| SidewinderPvE.CanUse(out act, skipTTKCheck: true)
+			|| RainOfDeathPvE.CanUse(out act, usedUp: true, skipTTKCheck: true)
 			|| HeartbreakShotPvE.CanUse(out act, usedUp: true, skipTTKCheck: true)
 			|| BloodletterPvE.CanUse(out act, usedUp: true, skipTTKCheck: true);
 	}

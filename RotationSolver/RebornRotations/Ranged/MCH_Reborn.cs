@@ -764,7 +764,8 @@ public class MCH_Reborn : MachinistRotation
 	{
 		get
 		{
-			const float REST_TIME = 8f;
+			// A tool that only comes back after the final kill is nothing to protect.
+			var REST_TIME = FinalKillIn < 8f ? FinalKillIn : 8f;
 			// Cannot AOE: on AoE targeting the single-target tools are not the priority this
 			// window protects, so nothing is worth delaying Hypercharge for.
 			if (SpreadShotPvE.CanUse(out _)) return false;
