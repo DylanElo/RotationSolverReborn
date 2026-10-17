@@ -439,6 +439,13 @@ public class BRD_Reborn : BardRotation
 		&& Array.IndexOf(Coda, Song.MagesBallad) < 0
 		&& MagesBalladPvE.Cooldown.RecastTimeRemain > 0f
 		&& MagesBalladPvE.Cooldown.RecastTimeRemain <= GCDTime(2);
+	private IBaseAction SongTrackAction(SongTrack track) => track switch
+	{
+		SongTrack.MagesBallad => MagesBalladPvE,
+		SongTrack.ArmysPaeon => ArmysPaeonPvE,
+		_ => TheWanderersMinuetPvE,
+	};
+
 	private bool TrySongTrackAction(SongTrack track, out IAction? act)
 	{
 		act = null;
@@ -557,6 +564,17 @@ public class BRD_Reborn : BardRotation
 				_ => TheWanderersMinuetPvE,
 			};
 
+			// Drifted order (10-17: Paeon skipped in P2 Diamond Dust -> Minuet, Paeon, Ballad): the fixed-order next song is on
+			// cooldown, so nothing cuts this one, Minuet starts after the burst Finale (2 Codas) and is too late to play in CT.
+			// Minuet comes back on the 2-min burst: take it as soon as it is ready.
+			if (FirstSong == SongTrack.WanderersMinuet && currentSongTrack != SongTrack.WanderersMinuet
+				&& nextSongTrack != SongTrack.WanderersMinuet && HasHostilesInMaxRange
+				&& currentSongAction.Cooldown.ElapsedAfter(10) && !TrySongTrackAction(nextSongTrack, out _)
+				&& TrySongTrackAction(SongTrack.WanderersMinuet, out act))
+			{
+				return true;
+			}
+
 			// The gauge can report the new song with a 0 timer for a moment after the cast; two FRU openers
 			// switched Wanderer's to Ballad 0.5s in. Never switch in a song's first 10s.
 			if (currentSongAction.Cooldown.ElapsedAfter(10) && TrySongTrackAction(nextSongTrack, out act) && SongEndAfter(remainTime))
@@ -624,6 +642,21 @@ public class BRD_Reborn : BardRotation
 			// After a downtime, a Minuet a few seconds out beats starting Paeon: Paeon there put every P5 burst in Army's.
 			if (FirstSong == SongTrack.WanderersMinuet && TheWanderersMinuetPvE.EnoughLevel
 				&& TheWanderersMinuetPvE.Cooldown.IsCoolingDown && TheWanderersMinuetPvE.Cooldown.RecastTimeRemain < 8f)
+			{
+				return false;
+			}
+
+			// The song just ended a moment before its successor is back: wait rather than start the wrong one. 10-17: Minuet
+			// ended 1.4s before Ballad, Paeon went instead and the order stayed flipped all pull (later Finales at 2 Codas).
+			var expected = LastSong switch
+			{
+				Song.WanderersMinuet => (IBaseAction?)SongTrackAction(GetNextSongTrack(SongTrack.WanderersMinuet)),
+				Song.MagesBallad => SongTrackAction(GetNextSongTrack(SongTrack.MagesBallad)),
+				Song.ArmysPaeon => SongTrackAction(GetNextSongTrack(SongTrack.ArmysPaeon)),
+				_ => null,
+			};
+			if (HasHostilesInMaxRange && expected is { EnoughLevel: true } && expected.Cooldown.IsCoolingDown
+				&& expected.Cooldown.RecastTimeRemain < GCDTime(1))
 			{
 				return false;
 			}
