@@ -796,7 +796,10 @@ public class BRD_Reborn : BardRotation
 				return true;
 			}
 
-			if (((RadiantFinalePvE.EnoughLevel && HasRadiantFinale && HasBattleVoice)
+			// A Finale cast this GCD counts: its status lags the cast ~0.5-1s, and at the 10-17 P5 opener Pitch Perfect took
+			// that weave and pushed Raging Strikes 2 GCDs late.
+			if (((RadiantFinalePvE.EnoughLevel && (HasRadiantFinale
+					|| (RadiantFinalePvE.Cooldown.IsCoolingDown && !RadiantFinalePvE.Cooldown.ElapsedAfter(2.5f))) && HasBattleVoice)
 				|| (!RadiantFinalePvE.EnoughLevel && BattleVoicePvE.EnoughLevel && HasBattleVoice)
 				|| (!RadiantFinalePvE.EnoughLevel && !BattleVoicePvE.EnoughLevel))
 				&& RagingStrikesPvE.CanUse(out act, skipTTKCheck: HasBattleVoice || BurstSkipsTTK))
@@ -1117,6 +1120,11 @@ public class BRD_Reborn : BardRotation
 		}
 	}
 
+	private bool BurstBuffEndsWithin(float seconds)
+		=> StatusHelper.PlayerWillStatusEnd(seconds, false, StatusID.RagingStrikes)
+			|| (HasBattleVoice && StatusHelper.PlayerWillStatusEnd(seconds, false, StatusID.BattleVoice))
+			|| (HasRadiantFinale && StatusHelper.PlayerWillStatusEnd(seconds, false, StatusID.RadiantFinale));
+
 	private bool CanUseApexArrow(out IAction act)
 	{
 		if (!ApexArrowPvE.CanUse(out act))
@@ -1170,7 +1178,9 @@ public class BRD_Reborn : BardRotation
 			return true;
 		}
 
-		if (SoulVoice >= 80 && HasRagingStrikes && StatusHelper.PlayerWillStatusEnd(10, false, StatusID.RagingStrikes))
+		// The first buff to end sets the deadline, not Raging Strikes: in the 10-17 clear Battle Voice and Finale went 1-4s
+		// earlier, so an RS-timed Apex put Blast Arrow after them.
+		if (SoulVoice >= 80 && HasRagingStrikes && BurstBuffEndsWithin(10f))
 		{
 			return true;
 		}

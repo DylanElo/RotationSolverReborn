@@ -14,7 +14,7 @@ class IBattleChara : IGameObject {
 }
 class FakeCooldown {
  public int CurrentCharges=1, MaxCharges=1; public float RecastTimeRemain,RecastTimeElapsed;
- public bool IsCoolingDown=>RecastTimeRemain>0; public bool HasOneCharge=>CurrentCharges>0;
+ public bool IsCoolingDown=>RecastTimeRemain>0; public bool HasOneCharge=>CurrentCharges>0; public bool ElapsedAfter(float t)=>IsCoolingDown&&t<=RecastTimeElapsed;
  public bool WillHaveOneCharge(float seconds)=>CurrentCharges>0||RecastTimeRemain<=seconds;
  public bool WillHaveOneChargeGCD(uint n=0,float offset=0)=>WillHaveOneCharge(DataCenter.DefaultGCDRemain+n*2.5f+offset);
  public bool WillHaveXCharges(int n,float seconds)=>CurrentCharges>=n||RecastTimeRemain<=seconds;
