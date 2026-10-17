@@ -88,6 +88,16 @@ public class BRD_Reborn : BardRotation
 	/// <summary>Another job's raid buff is up (or its debuff is on the target): the party is bursting now.</summary>
 	private protected static bool PartyRaidBuffUp => Buffs.Any(b => b.JobAbbr != "BRD" && IsUp(b));
 
+	/// <summary>
+	/// The first of our burst buffs or an up party raid buff ends within a GCD: the last GCD still under all four. Party buffs
+	/// that start before ours also end first. (Two GCDs was tried: FightSim -0.16%, it only clips DoTs.)
+	/// </summary>
+	private bool BurstEndsNextGcd
+		=> StatusHelper.PlayerWillStatusEndGCD(1, 1, true, StatusID.BattleVoice, StatusID.RadiantFinale, StatusID.RagingStrikes)
+			|| Buffs.Any(b => b.JobAbbr != "BRD" && (b.Type == StatusType.Buff
+				? StatusHelper.PlayerHasStatus(false, b.Ids) && StatusHelper.PlayerWillStatusEndGCD(1, 1, false, b.Ids)
+				: CurrentTarget is { } t && t.HasStatus(false, b.Ids) && t.WillStatusEndGCD(1, 1, false, b.Ids)));
+
 	private static bool IsUp(StatusInfo b) => b.Type == StatusType.Buff
 		? StatusHelper.PlayerHasStatus(false, b.Ids)
 		: CurrentTarget?.HasStatus(false, b.Ids) == true;
@@ -963,12 +973,14 @@ public class BRD_Reborn : BardRotation
 			return true;
 		}
 
-		if (UptimeForDoT && CanUseDoT(IronJawsPvE, out act, skipStatusProvideCheck: true) && (IronJawsPvE.Target.Target?.WillStatusEnd(30, true, IronJawsPvE.Setting.TargetStatusProvide ?? []) ?? false)
+		// No "DoTs end within 30s" gate: an Iron Jaws just before the burst left 38s, which blocked the snapshot in it (10-17 clear:
+		// 1 of 9 bursts had Iron Jaws under all four buffs, tops 3-5). BurstEndRefreshPays already weighs the clipped time.
+		if (UptimeForDoT && CanUseDoT(IronJawsPvE, out act, skipStatusProvideCheck: true) && IronJawsPvE.Target.Target != null
 			&& BurstEndRefreshPays(BuffSnapshotOn(IronJawsPvE.Target.Target), DotSnapshotOn(IronJawsPvE.Target.Target),
 				IronJawsPvE.Target.Target?.StatusTime(true, StatusID.Stormbite, StatusID.Windbite) ?? 0f,
 				IronJawsPvE.Target.Target?.GetTTK() ?? float.NaN, BMRDowntimeIn))
 		{
-			if (StatusHelper.PlayerHasStatus(true, StatusID.BattleVoice, StatusID.RadiantFinale, StatusID.RagingStrikes) && StatusHelper.PlayerWillStatusEndGCD(1, 1, true, StatusID.BattleVoice, StatusID.RadiantFinale, StatusID.RagingStrikes))
+			if (StatusHelper.PlayerHasStatus(true, StatusID.BattleVoice, StatusID.RadiantFinale, StatusID.RagingStrikes) && BurstEndsNextGcd)
 			{
 				if (HasHawksEye && !StatusHelper.PlayerWillStatusEndGCD(1, 0.3f, true, StatusID.BattleVoice, StatusID.RadiantFinale, StatusID.RagingStrikes)
 					&& (ShadowbitePvE.CanUse(out var proc) || RefulgentArrowPvE.CanUse(out proc, skipComboCheck: true)))
