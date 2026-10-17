@@ -104,6 +104,13 @@ internal static class FinalKillCheck
 			Case("BRD", $"Sidewinder ready, {left}s left", left, _ => Ready(SidewinderPvE),
 				() => Cast(SidewinderPvE) > 0 ? null : "Sidewinder never used");
 
+		// A fresh DoT or an Iron Jaws refresh only beats Burst Shot with more than ~12s of ticks left.
+		foreach (var left in new[] { 4f, 8f, 11f })
+			Case("BRD", $"DoTs falling off, {left}s left", left, _ =>
+			{
+				foreach (var h in Game.Hostiles) { h.Statuses[StatusID.Stormbite] = 2.5f; h.Statuses[StatusID.CausticBite] = 2.5f; }
+			}, () => Cast(IronJawsPvE) + Cast(StormbitePvE) + Cast(CausticBitePvE) is var n && n == 0 ? null : $"{n} DoT/Iron Jaws cast(s) at the kill");
+
 		Console.WriteLine($"Final-kill dump: {_passed} checks passed, {Holds.Count} holds.");
 		if (Holds.Count != 0) throw new InvalidOperationException("Final-kill holds:" + Environment.NewLine + string.Join(Environment.NewLine, Holds));
 	}

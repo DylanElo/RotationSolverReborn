@@ -1092,6 +1092,13 @@ public class BRD_Reborn : BardRotation
 
 	private bool CanUseDoT(IBaseAction action, out IAction? act, bool skipStatusProvideCheck = false, float? refreshWithin = null)
 	{
+		// Final kill: a fresh DoT or Iron Jaws refresh only beats Burst Shot with more ticks left than the dump window
+		// (live 10-17: Iron Jaws 4.8s before Pandora died).
+		if (FinalKillIn <= FinalKillDumpWindow)
+		{
+			act = null;
+			return false;
+		}
 		var setting = action.Setting;
 		var canTarget = setting.CanTarget;
 		var jaws = action == IronJawsPvE;
