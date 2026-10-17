@@ -32,6 +32,11 @@ if (args.Contains("--check-mch-queen-model"))
 	return 0;
 }
 
+if (args.Contains("--check-final-kill"))
+{
+	FinalKillCheck.Run();
+	return 0;
+}
 if (args.Contains("--check-downtime"))
 {
 	DowntimeForecastCheck.Run();
@@ -80,7 +85,7 @@ for (var seed = seedStart; seed < seedStart + seeds; seed++)
 	Game.Reset(timeline, NewJob(), seed);
 	var rotation = (CustomRotation)Activator.CreateInstance(rotationType)!;
 	ApplyConfig(rotation, jobName, rotationType.FullName!);
-	Run(rotation, seed, replayUtilities && jobName == "BRD");
+	Driver.Run(rotation, seed, replayUtilities && jobName == "BRD");
 	if (checkCtCodas && BardCtCheck.Validate(timeline, seed)) ctFinaleRuns++;
 	var byPhase = phases.Select(p => Game.DamageEvents.Where(e => e.Time >= p.Start && e.Time < p.End).Sum(e => e.Damage)).ToArray();
 	runs.Add((Game.DamageEvents.Sum(e => e.Damage), Game.DamageByAction.GroupBy(kv => Norm(kv.Key)).ToDictionary(g => g.Key, g => g.Sum(kv => kv.Value)), byPhase));
@@ -129,61 +134,6 @@ static double Sd(IEnumerable<double> xs)
 	var list = xs.ToList();
 	var mean = list.Average();
 	return Math.Sqrt(list.Sum(x => (x - mean) * (x - mean)) / Math.Max(1, list.Count - 1));
-}
-
-// Steps the fight: the GCD when it is ready, otherwise a weave, the way CustomRotation.Invoke picks between them.
-static void Run(CustomRotation rotation, int seed, bool replayUtilities)
-{
-	const float dt = 0.02f;
-	var noGcd = BaseAction.Create(ActionID.None, (ref ActionSetting _) => { }); // CustomRotation passes AddlePvE when there is no GCD
-	var weaves = new RotationSolver.Basic.Helpers.WeaveBudget();
-	var utility = replayUtilities ? new UtilityWeaveReplay(Game.Timeline) : null;
-	ushort sourceSequence = 0;
-	uint effectSequence = 0;
-	bool Use(IAction action, bool nativeUtility = false)
-	{
-		var isGcd = action is BaseAction a && Game.Job.Spec(Game.Job.Adjusted(a.ActionId)).IsGcd;
-		var sequence = ++sourceSequence;
-		var accepted = weaves.TryUse(true, isGcd, false, action.ID, () =>
-		{
-			Game.Execute(action);
-			if (!isGcd) weaves.RecordRequest(action.ID, sequence, Game.Now);
-			return true;
-		}, utility?.Reserved ?? 0, nativeUtility, Game.Now);
-		if (accepted) weaves.Record(isGcd, action.ID, ++effectSequence, sequence, Game.Now);
-		return accepted;
-	}
-	IAction? queued = null; // ActionHelper.CanUseGCD: within the action-ahead window RSR presses the GCD and the game queues it
-	while (Game.Now < Game.Timeline.Duration)
-	{
-		Game.Step(dt);
-		if (!Game.InCombat || Game.Locked) { queued = null; continue; }
-		if (Game.AnimationLock > 0f) continue;
-		var gcd = rotation.NextGcd();
-		if (utility != null) utility.HasGcd = gcd != null;
-		weaves.RefreshIdleWindow(gcd != null, Game.GcdTotal, Game.Now);
-		if (utility?.Due() is { } nativeUtility && Use(nativeUtility, true))
-		{
-			utility.Executed(nativeUtility.ActionId);
-			continue;
-		}
-		if (queued != null)
-		{
-			if (Game.GcdRemain > 0f || (utility?.HoldGcd == true && !weaves.Exhausted)) continue;
-			// The game drops a queued action whose target is gone.
-			if (queued is BaseAction q && (q.Target.Target is not { } t || Game.InRange(t))) Use(queued);
-			queued = null;
-			continue;
-		}
-		if (gcd != null && (utility?.HoldGcd != true || weaves.Exhausted) && Game.GcdRemain <= Game.GcdTotal * Game.ActionAhead)
-		{
-			queued = gcd;
-			continue;
-		}
-		var ability = rotation.NextAbility(gcd ?? noGcd);
-		if (ability != null) Use(ability);
-	}
-	utility?.Validate(seed);
 }
 
 // Copies the user's RSR settings: the rotation's [RotationConfig] properties and the per-action configs (enabled, AoE count, TTK, refresh).
@@ -243,3 +193,62 @@ static string Norm(string name) => name.Replace(" ", "").Replace("'", "");
 static (double Total, Dictionary<string, double> ByAction, Func<float, float, double> ByPhase) LogTotals(List<(float T, string Name, double P)> hits)
 	=> (hits.Sum(h => h.P), hits.GroupBy(h => Norm(h.Name)).ToDictionary(g => g.Key, g => g.Sum(h => h.P)),
 		(a, b) => hits.Where(h => h.T >= a && h.T < b).Sum(h => h.P));
+
+internal static class Driver
+{
+	// Steps the fight: the GCD when it is ready, otherwise a weave, the way CustomRotation.Invoke picks between them.
+	public static void Run(CustomRotation rotation, int seed, bool replayUtilities, Action? afterStep = null)
+	{
+		const float dt = 0.02f;
+		var noGcd = BaseAction.Create(ActionID.None, (ref ActionSetting _) => { }); // CustomRotation passes AddlePvE when there is no GCD
+		var weaves = new RotationSolver.Basic.Helpers.WeaveBudget();
+		var utility = replayUtilities ? new UtilityWeaveReplay(Game.Timeline) : null;
+		ushort sourceSequence = 0;
+		uint effectSequence = 0;
+		bool Use(IAction action, bool nativeUtility = false)
+		{
+			var isGcd = action is BaseAction a && Game.Job.Spec(Game.Job.Adjusted(a.ActionId)).IsGcd;
+			var sequence = ++sourceSequence;
+			var accepted = weaves.TryUse(true, isGcd, false, action.ID, () =>
+			{
+				Game.Execute(action);
+				if (!isGcd) weaves.RecordRequest(action.ID, sequence, Game.Now);
+				return true;
+			}, utility?.Reserved ?? 0, nativeUtility, Game.Now);
+			if (accepted) weaves.Record(isGcd, action.ID, ++effectSequence, sequence, Game.Now);
+			return accepted;
+		}
+		IAction? queued = null; // ActionHelper.CanUseGCD: within the action-ahead window RSR presses the GCD and the game queues it
+		while (Game.Now < Game.Timeline.Duration)
+		{
+			Game.Step(dt);
+			afterStep?.Invoke();
+			if (!Game.InCombat || Game.Locked) { queued = null; continue; }
+			if (Game.AnimationLock > 0f) continue;
+			var gcd = rotation.NextGcd();
+			if (utility != null) utility.HasGcd = gcd != null;
+			weaves.RefreshIdleWindow(gcd != null, Game.GcdTotal, Game.Now);
+			if (utility?.Due() is { } nativeUtility && Use(nativeUtility, true))
+			{
+				utility.Executed(nativeUtility.ActionId);
+				continue;
+			}
+			if (queued != null)
+			{
+				if (Game.GcdRemain > 0f || (utility?.HoldGcd == true && !weaves.Exhausted)) continue;
+				// The game drops a queued action whose target is gone.
+				if (queued is BaseAction q && (q.Target.Target is not { } t || Game.InRange(t))) Use(queued);
+				queued = null;
+				continue;
+			}
+			if (gcd != null && (utility?.HoldGcd != true || weaves.Exhausted) && Game.GcdRemain <= Game.GcdTotal * Game.ActionAhead)
+			{
+				queued = gcd;
+				continue;
+			}
+			var ability = rotation.NextAbility(gcd ?? noGcd);
+			if (ability != null) Use(ability);
+		}
+		utility?.Validate(seed);
+	}
+}

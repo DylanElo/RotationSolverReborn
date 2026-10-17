@@ -69,6 +69,18 @@ Focused tests override object lookup explicitly to exercise actual removal and r
 To judge a rotation change, run before and after on the same timelines. 20 seeds take about a minute. The seed-to-seed
 spread is ~1% of DPS, so the mean is good to ~0.3%.
 
+## Final-kill dump
+
+```powershell
+dotnet run --project tests/FightSim -c Release -- --check-final-kill
+```
+
+Short synthetic fights where Pandora (0x45AF) dies at a known time, every cooldown drained except the one resource under
+test (Heat, Battery, Barrel, Excavator, Wildfire; Battle Voice/Finale, Soul Voice, Pitch Perfect, Heartbreak, Sidewinder).
+The real BRD_Plan / MCH_Plan run through the whole-fight GCD/weave loop with rotation defaults (not your RotationSolver.json),
+and each resource must be spent before the death (Wildfire detonated with stored hits, Queen's Crowned Collider landed).
+Each case runs again on the P4 pair, where FinalKillIn must stay NaN. It fails with one HOLD line and trace per hold.
+
 ## How it works
 
 - **Rotation**: the production files compile unchanged against `Fakes.cs`, the slice of RotationSolver.Basic and Dalamud
