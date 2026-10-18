@@ -113,6 +113,7 @@ public static class Game
 	public static int Level { get; set; } = 100;
 	// Optional external-boundary inputs for selector regressions; whole-fight replay keeps its measured defaults.
 	public static bool IsInFRU { get; set; } = true;
+	public static bool ManualTargeting { get; set; }
 	public static (float Start, float End)? ForecastOverride { get; set; }
 	public static float? TtkOverride { get; set; }
 	public static Func<IBattleChara, float>? TargetTtkOverride { get; set; }
@@ -181,6 +182,7 @@ public static class Game
 	{
 		Level = 100;
 		IsInFRU = true;
+		ManualTargeting = false;
 		ForecastOverride = null;
 		TtkOverride = null;
 		TargetTtkOverride = null;

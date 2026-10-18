@@ -56,6 +56,23 @@ static class Scenarios {
  Reset();DataCenter.IsInFRU=false;veil.TargetObject=Player.Object;
  eligible=new[]{veil,rest,sw,nw}.Where(c=>TargetHelper.ValidityCheck(c,[],[])).ToArray();
  Check("outside FRU engaged target membership unchanged",4,eligible);veil.TargetObject=null;
+#if TARGET_AVAILABILITY
+ var frost=new IBattleChara{GameObjectId=10,BaseId=0x45A9,CurrentHp=2003,MaxHp=10000};
+ var oracle=new IBattleChara{GameObjectId=11,BaseId=0x45AB,CurrentHp=1805,MaxHp=10000};
+ var availability=new NativeAvailability(ActionID.EmpyrealArrowPvE);
+ void PairReset(){Reset();DataCenter.TargetingType=TargetingType.HighHP;DataCenter.IsManual=false;DataCenter.BMRNextDowntimeIn=1.4f;DataCenter.BMRNextDowntimeEndIn=40f;Svc.Objects=[frost,oracle];}
+ IBattleChara[] PairTargets(NativeAvailability? policy=null)=>new[]{frost,oracle}.Where((policy??availability).CheckTargetAvailability).ToArray();
+ PairReset();Check("native availability and HP ranking choose surviving Oracle",11,PairTargets());
+ PairReset();DataCenter.BMRNextDowntimeIn=2.21f;Check("native availability keeps highest HP Frost with sufficient uptime",10,PairTargets());
+ PairReset();DataCenter.BMRNextDowntimeIn=1f;Check("native availability rejects both unsafe pair targets",0,PairTargets());
+ PairReset();DataCenter.IsManual=true;Check("native availability preserves manual Frost",10,PairTargets());
+ PairReset();DataCenter.BMRNextDowntimeIn=DataCenter.BMRNextDowntimeEndIn=float.MaxValue;Check("native availability unknown forecast retains Frost",10,PairTargets());
+ PairReset();DataCenter.IsInFRU=false;Check("native availability outside FRU retains Frost",10,PairTargets());
+ PairReset();Check("native availability friendly wrapper bypass retains Frost",10,PairTargets(new NativeAvailability(ActionID.EmpyrealArrowPvE,true)));
+ PairReset();Check("native availability unrelated action retains Frost",10,PairTargets(new NativeAvailability(ActionID.BurstShotPvE)));
+ PairReset();DataCenter.BMRNextDowntimeEndIn=80f;Check("native availability long non-CT downtime retains Frost",10,PairTargets());
+ PairReset();DataCenter.BMRNextDowntimeIn=2.125f;Check("native availability exact Frost impact boundary chooses Oracle",11,PairTargets());
+#endif
  Console.WriteLine($"RESULT {passed} passed, {failed} failed");return failed==0?0:1;
  }
 }

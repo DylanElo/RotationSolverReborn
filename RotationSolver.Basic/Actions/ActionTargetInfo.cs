@@ -130,7 +130,7 @@ public struct ActionTargetInfo(IBaseAction action)
 			var ttkCheck = CheckTimeToKill(target);
 			var resistanceCheck = CheckResistance(target);
 
-			if (!statusCheck || !ttkCheck || !resistanceCheck)
+			if (!statusCheck || !ttkCheck || !resistanceCheck || !CheckTargetAvailability(target))
 			{
 				continue;
 			}
@@ -156,6 +156,10 @@ public struct ActionTargetInfo(IBaseAction action)
 
 		return validTargets;
 	}
+
+	private readonly bool CheckTargetAvailability(IBattleChara target) => IsTargetFriendly
+		|| TargetAvailability.CanTarget((ActionID)action.AdjustedID, target.BaseId, DataCenter.IsInFRU,
+			DataCenter.IsManual, DataCenter.BMRNextDowntimeIn, DataCenter.BMRNextDowntimeEndIn);
 
 	/// <summary>
 	/// Retrieves a list of battle characters that can be affected based on the specified criteria.

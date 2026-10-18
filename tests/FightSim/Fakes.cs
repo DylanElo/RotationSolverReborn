@@ -334,12 +334,16 @@ namespace RotationSolver.Basic.Actions
 			var current = DataCenter.CurrentTarget;
 			// shortcut: replay has no manual-mode/visibility data; DoTs use automatic targeting, with the fixture target preferred.
 			var dot = spec.Shape == AoeShape.Single && (Setting.TargetStatusProvide?.Length > 0 || Setting.TargetStatusNeed?.Length > 0);
-			IEnumerable<IBattleChara> candidates = dot
+			bool Available(IBattleChara target) => TargetAvailability.CanTarget(Game.Job.Adjusted(ActionId), target.BaseId,
+				Game.IsInFRU, Game.ManualTargeting, Game.DowntimeIn, Game.DowntimeEndIn);
+			// Preserve replay targets unless the shared native availability rule requires an automatic fallback.
+			var availabilityFallback = current != null && !Available(current);
+			IEnumerable<IBattleChara> candidates = dot || availabilityFallback
 				? Game.Hostiles.OrderByDescending(t => t == current)
 				: current == null ? [] : [current];
 			foreach (var target in candidates)
 			{
-				if (!Game.InRange(target) || Setting.CanTarget != null && !Setting.CanTarget(target)) continue;
+				if (!Available(target) || !Game.InRange(target) || Setting.CanTarget != null && !Setting.CanTarget(target)) continue;
 				if (!CheckStatus(target, skipStatusProvideCheck, skipTargetStatusNeedCheck)) continue;
 				var ttk = target.GetTTK();
 				if (dot && !float.IsNaN(ttk) && ttk < Config.TimeToKill) continue;

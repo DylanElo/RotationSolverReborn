@@ -54,6 +54,11 @@ var seedStart = int.Parse(Opt("--seed-start") ?? "0");
 var configPath = Opt("--config") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "XIVLauncher", "pluginConfigs", "RotationSolver.json");
 
 var timeline = Timeline.Load(path);
+if (args.Contains("--check-target-availability"))
+{
+	TargetAvailabilityCheck.Run(timeline);
+	return 0;
+}
 if (args.Contains("--check-brd-apex-policy"))
 {
 	BardApexPolicyCheck.Run(timeline);

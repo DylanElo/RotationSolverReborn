@@ -9,6 +9,7 @@
   <ItemGroup>
     <Compile Include="../../RotationSolver.Basic/Rotations/Basic/BardRotation.cs" Link="Prod/BardRotation.cs" />
     <Compile Include="../../RotationSolver.Basic/Helpers/WeaveBudget.cs" Link="Prod/WeaveBudget.cs" />
+    <Compile Include="../../RotationSolver.Basic/Helpers/TargetAvailability.cs" Link="Prod/TargetAvailability.cs" />
     <Compile Include="../../RotationSolver/Updaters/PlannedMchUtilityWeave.cs" Link="Prod/PlannedMchUtilityWeave.cs" />
     <Compile Include="$(BrdRotationSource)" Link="Prod/BRD_Reborn.cs" />
     <Compile Include="../../RotationSolver/RebornRotations/Ranged/BRD_Plan.cs" Link="Prod/BRD_Plan.cs" />

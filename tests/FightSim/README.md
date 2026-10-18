@@ -247,6 +247,11 @@ recovery, and the resulting three-Coda P5 Finale. Full clear replays complement 
 Minuet, distant buffs, AutoBurst off, long planned holds, imminent downtime boundaries, active buffs, and final-kill exceptions. CT recovery checks
 also cover the raw final half-second of Minuet, queued-GCD timing, and draining the last usable Pitch Perfect.
 
+`--check-target-availability` checks the shared automatic Empyreal target filter and Oracle fallback during FRU CT.
+It uses BossMod's global forecast and the encounter's 1.1s disappearance stagger, with the measured 1.025s impact
+estimate. Unknown forecasts and manual targeting retain existing behavior; replay damage still uses its independent
+targetability spans. The simulator links the production helper used by the native target resolver.
+
 ## BRD damage optimization comparison (2026-10-17)
 
 The current model uses native cone geometry, validated against all 37 logged P4 Ladonsbite casts in the three fixtures.

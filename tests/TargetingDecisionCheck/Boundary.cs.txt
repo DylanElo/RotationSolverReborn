@@ -9,12 +9,16 @@ class IBattleChara {
 class Status {public bool Priority;}
 static class StatusHelper {public static bool IsPriority(Status status)=>status.Priority; public static bool IsInvincible(Status status)=>false;}
 enum Job {BRD,MCH,VPR} enum StatusID {Wildfire,Wildfire_1323} enum EventHandlerContent {None,Quest,DpsChallengeDirector} enum BattleNpcSubKind {None,BNpcPart}
+enum ActionID {EmpyrealArrowPvE,BurstShotPvE}
+class FakeAction {public uint AdjustedID;public FakeSetting Setting=new();}
+class FakeSetting {public bool IsFriendly;}
 enum TargetingType {Small,HighHP,LowHP,HighHPPercent,LowHPPercent,HighMaxHP,LowMaxHP,Nearest,Farthest,PvPHealers,PvPTanks,PvPDPS}
 enum JobRole {Healer,Tank,AllDPS}
 static class Roles {public static int[] ToJobs(this JobRole role)=>[];}
 static class Player {public static Job Job; public static IBattleChara? Object=new();}
 static class Svc {public static List<IBattleChara> Objects=[]; public static Conditions Condition=new(); public static ClientState ClientState=new();}
 static class DataCenter {
+ public static bool IsManual;public static float BMRNextDowntimeIn=float.MaxValue,BMRNextDowntimeEndIn=float.MaxValue;
  public static Territory? Territory; public static List<IBattleChara> PartyMembers=[];public static TargetHostileType CurrentTargetToHostileType=TargetHostileType.TargetsHaveTarget; public static bool IsHenched,IsInBozjanFieldOp,IsInBozjanFieldOpCE; public static bool IsInFRU=true,IsInTreasureHunt,IsInFate,IsInOccultCrescentOp,IsInNorthHorn,IsPvP;public static uint PlayerFateId;public static TargetingType TargetingType=TargetingType.HighHP;
 }
 class Config {
