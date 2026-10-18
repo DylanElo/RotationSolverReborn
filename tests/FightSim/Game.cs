@@ -62,6 +62,7 @@ public sealed record Debuff(string Name, float Start, float End);
 public sealed record PlanWindow(float Start, float End, bool Potion);
 public sealed record EnemyCast(string Key, uint Id, float Start, float Duration);
 public sealed record EnemyDebuff(string Key, string Name, string Job, float Mult, float Start, float End);
+public sealed record DamageApplication(float Time, string Action, string? Target, double Damage, double RequestedDamage, int CastIndex, bool Applied);
 
 /// <summary>An enemy from the timeline: targetable spans, HP and position replayed from the log.</summary>
 public sealed class Enemy(TimelineActor actor, ulong objectId)
@@ -71,7 +72,20 @@ public sealed class Enemy(TimelineActor actor, ulong objectId)
 	public bool Present => Actor.PresentFrom is not { } since || Game.Now >= since;
 	public bool Targetable => Present && Actor.Spans.Any(s => Game.Now >= s[0] && Game.Now < s[1]) && Chara.GetHealthRatio() > 0f;
 
-	public (float X, float Y) Position => (Sample(Actor.Pos, 1, 100f), Sample(Actor.Pos, 2, 100f));
+	public (float X, float Y) Position
+	{
+		get
+		{
+			// shortcut: carry a return pose back at most 500ms to span entry; exact subsecond positions are not logged.
+			var span = Actor.Spans.Find(s => Game.Now >= s[0] && Game.Now < s[1]);
+			if (span != null && Game.Now - span[0] <= 0.5f)
+			{
+				var entry = Actor.Pos.Find(p => p[0] >= span[0] && p[0] < span[1]);
+				if (entry != null && entry[0] <= span[0] + 0.5f && Game.Now < entry[0]) return (entry[1], entry[2]);
+			}
+			return (Sample(Actor.Pos, 1, 100f), Sample(Actor.Pos, 2, 100f));
+		}
+	}
 
 	/// <summary>The last sample at or before now (column 1 by default).</summary>
 	internal static float Sample(List<float[]> rows, float fallback) => Sample(rows, 1, fallback);
@@ -156,6 +170,12 @@ public static class Game
 	public static readonly List<(float Time, string Action, string? Target, double Damage)> Casts = [];
 	public static readonly Dictionary<string, double> DamageByAction = [];
 	public static readonly List<(float Time, double Damage)> DamageEvents = [];
+	public static readonly List<DamageApplication> DamageApplications = [];
+	private static readonly PriorityQueue<Action, (float At, long Sequence)> _applications = new();
+	private static long _applicationSequence;
+	private static int _applicationCast = -1;
+	private static string _applicationAction = "";
+	private static IBattleChara[] _applicationTargets = [];
 
 	public static void Reset(Timeline timeline, IJob job, int seed)
 	{
@@ -188,6 +208,12 @@ public static class Game
 		Casts.Clear();
 		DamageByAction.Clear();
 		DamageEvents.Clear();
+		DamageApplications.Clear();
+		_applications.Clear();
+		_applicationSequence = 0;
+		_applicationCast = -1;
+		_applicationAction = "";
+		_applicationTargets = [];
 		_downtimeForecast = new DowntimeForecast(timeline);
 		_castsByKey = (timeline.EnemyCasts ?? []).GroupBy(c => c.Key).ToDictionary(g => g.Key, g => g.ToList());
 		_ttkCache.Clear();
@@ -236,10 +262,14 @@ public static class Game
 			if (spec.Shape == AoeShape.CircleOnTarget) return Math.Sqrt((x - tx) * (x - tx) + (y - ty) * (y - ty)) <= spec.Radius + r;
 			if (spec.Shape == AoeShape.Line)
 			{
-				var len = Math.Max(Math.Sqrt((tx - px) * (tx - px) + (ty - py) * (ty - py)), 0.1);
+				// shortcut: timelines omit facing, so aim the 4y-wide line at the selected target until facing is recorded.
+				var len = Math.Sqrt((tx - px) * (tx - px) + (ty - py) * (ty - py));
+				if (len <= 0.001) return (x - px) * (x - px) + (y - py) * (y - py) <= r * r;
 				var along = ((x - px) * (tx - px) + (y - py) * (ty - py)) / len;
 				var across = Math.Abs((x - px) * (ty - py) - (y - py) * (tx - px)) / len;
-				return along >= -r && along <= spec.Radius + r && across <= 2 + r;
+				var pastEnd = Math.Max(0, Math.Max(-along, along - spec.Radius));
+				var pastSide = Math.Max(0, across - 2);
+				return pastEnd * pastEnd + pastSide * pastSide <= r * r;
 			}
 			var dx = tx - px;
 			var dy = ty - py;
@@ -315,6 +345,17 @@ public static class Game
 
 	/// <summary>Advance the clock: statuses tick down, the log's world state is replayed, the job's own clock runs.</summary>
 	public static void Step(float dt)
+	{
+		var end = Now + dt;
+		while (_applications.TryPeek(out _, out var next) && next.At <= end)
+		{
+			AdvanceClock(Math.Max(0, next.At - Now));
+			_applications.Dequeue()();
+		}
+		if (Now < end || dt == 0) AdvanceClock(end - Now);
+	}
+
+	private static void AdvanceClock(float dt)
 	{
 		Now += dt;
 		foreach (var chara in Enemies.Select(e => e.Chara).Append(Player))
@@ -425,7 +466,11 @@ public static class Game
 		_lockUntil = Now + AnimationLockSeconds;
 		var target = baseAction.Target.Target;
 		Casts.Add((Now, spec.Id.ToString(), target == null || target == Player ? null : Enemies.First(e => e.Chara == target).Actor.Key, 0));
-		Job.Execute(spec, target, baseAction.Target.AffectedTargets ?? []);
+		_applicationCast = Casts.Count - 1;
+		_applicationAction = spec.Id.ToString();
+		_applicationTargets = baseAction.Target.AffectedTargets ?? (target == null ? [] : [target]);
+		try { Job.Execute(spec, target, _applicationTargets); }
+		finally { _applicationCast = -1; _applicationAction = ""; _applicationTargets = []; }
 	}
 
 	/// <summary>Expected damage now, in potency units: party buffs from the log times the job's own multiplier.</summary>
@@ -456,7 +501,31 @@ public static class Game
 		if (!Hostiles.Contains(target)) return;
 		var enemy = Enemies.Find(e => e.Chara == target);
 		var damage = potency * (snapshot ?? Multiplier(target)) * (enemy?.Actor.Taken ?? 1f);
-		if (snapshot == null && name != "Shot" && Casts.Count > 0 && Casts[^1].Time == Now) Casts[^1] = Casts[^1] with { Damage = Casts[^1].Damage + damage };
+		var castIndex = snapshot == null && name != "Shot" ? _applicationCast >= 0 ? _applicationCast
+			: Casts.Count > 0 && Casts[^1].Time == Now ? Casts.Count - 1 : -1 : -1;
+		var delay = Job is Bard && snapshot == null && (_applicationCast >= 0 || name == "Shot")
+			? BardApplicationTiming.Delay(name, Math.Max(0, Array.IndexOf(_applicationTargets, target))) : 0;
+		if (delay > 0) _applications.Enqueue(() => ApplyDamage(target, damage, name, castIndex), (Now + delay, ++_applicationSequence));
+		else ApplyDamage(target, damage, name, castIndex);
+	}
+
+	// DoT duration starts on application; its multiplier is captured by the caller at cast time.
+	public static void ApplyTargetEffect(IBattleChara target, Action effect)
+	{
+		var delay = Job is Bard && _applicationCast >= 0
+			? BardApplicationTiming.Delay(_applicationAction, Math.Max(0, Array.IndexOf(_applicationTargets, target))) : 0;
+		void Apply() { if (Hostiles.Contains(target)) effect(); }
+		if (delay > 0) _applications.Enqueue(Apply, (Now + delay, ++_applicationSequence));
+		else Apply();
+	}
+
+	private static void ApplyDamage(IBattleChara target, double damage, string name, int castIndex)
+	{
+		var key = Enemies.Find(e => e.Chara == target)?.Actor.Key;
+		var applied = Hostiles.Contains(target);
+		DamageApplications.Add(new(Now, name, key, applied ? damage : 0, damage, castIndex, applied));
+		if (!applied) return;
+		if (castIndex >= 0) Casts[castIndex] = Casts[castIndex] with { Damage = Casts[castIndex].Damage + damage };
 		DamageByAction[name] = DamageByAction.GetValueOrDefault(name) + damage;
 		DamageEvents.Add((Now, damage));
 	}

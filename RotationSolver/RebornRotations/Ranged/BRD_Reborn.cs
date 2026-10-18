@@ -405,6 +405,10 @@ public class BRD_Reborn : BardRotation
 	private float _ctMinuetNotBefore;
 	private bool DefaultCtSongOrder => FirstSong == SongTrack.WanderersMinuet
 		&& SecondSong == SongTrack.MagesBallad && ThirdSong == SongTrack.ArmysPaeon;
+	private bool CtCodaRecoveryPending => _ctFinaleConfirmed && DefaultCtSongOrder && !HasBattleVoice
+		&& (Array.IndexOf(Coda, Song.ArmysPaeon) < 0 || Array.IndexOf(Coda, Song.MagesBallad) < 0);
+	private bool HoldCtMinuetTail => CtCodaRecoveryPending && AliveP4Pair && Song == Song.WanderersMinuet
+		&& SongTime + DataCenter.DefaultGCDRemain > 0.5f;
 	private bool AliveP4Pair => DataCenter.IsInFRU
 		&& (CurrentTarget is { BaseId: 0x45A9 or 0x45AB } pair ? pair.GetHealthRatio() > 0.05f
 			: CurrentTarget == null && _lastTargetBaseId is 0x45A9 or 0x45AB && _lastTargetHp > 0.05f);
@@ -537,7 +541,7 @@ public class BRD_Reborn : BardRotation
 			return true;
 		}
 		// Rebuilding is allowed here; a filler song must not replace the Minuet reserved for Pandora.
-		if (WaitForP5Minuet) return false;
+		if (HoldCtMinuetTail || WaitForP5Minuet) return false;
 
 		// Leaving Minuet discards Repertoire: drain a usable PP first. An unusable PP never delays the song.
 		if (Song == Song.WanderersMinuet && Repertoire > 0 && SongEndAfter(WANDRemainTime)
@@ -704,8 +708,7 @@ public class BRD_Reborn : BardRotation
 		// Only a confirmed standalone CT Finale permits rebuilding Codas while the pair is targetable.
 		var coda = Coda;
 		// Rebuild both Codas even after Finale expires or Minuet is a few seconds late for the P5 return.
-		var ctPending = _ctFinaleConfirmed && DefaultCtSongOrder && !HasBattleVoice
-			&& (Array.IndexOf(coda, Song.ArmysPaeon) < 0 || Array.IndexOf(coda, Song.MagesBallad) < 0);
+		var ctPending = CtCodaRecoveryPending;
 		var ctRecovery = ctPending && AliveP4Pair;
 		if (!RadiantFinalePvE.EnoughLevel || (DataCenter.AllHostileTargets.Count > 0 && !ctRecovery)) return false;
 		var downtimeLeft = BMRDowntimeEndIn;
@@ -716,11 +719,10 @@ public class BRD_Reborn : BardRotation
 		{
 			return false;
 		}
-		if (ctRecovery && !_ctRecoveryPpDrained && Song == Song.WanderersMinuet && Repertoire > 0
+		if (ctRecovery && (!_ctRecoveryPpDrained || !HoldCtMinuetTail) && Song == Song.WanderersMinuet && Repertoire > 0
 			&& PitchPerfectPvE.CanUse(out act, skipAoeCheck: true, skipComboCheck: true)) return true;
-		// CT recovery only rebuilds the Codas: a running Minuet (and its Repertoire) is kept to its last GCD, as top logs do.
-		// Switching at the Stun threw away ~20s of Minuet and its Pitch Perfects when the pair returned (FightSim zX9LjrWh3v1F8AMQ#12 P4 -3.4%).
-		if (ctRecovery && Song == Song.WanderersMinuet && !SongEndAfterGCD(1)) return false;
+		// Use raw song time: SongEndAfterGCD also subtracts the queued GCD and clips the final Repertoire tick.
+		if (HoldCtMinuetTail) return false;
 		var minuetRecast = TheWanderersMinuetPvE.Cooldown.IsCoolingDown ? TheWanderersMinuetPvE.Cooldown.RecastTimeRemain : 0f;
 		var waitForUptime = WaitForP5Minuet;
 		var successorStart = CodaSuccessorStart(minuetRecast, downtimeLeft, waitForUptime);
@@ -1186,7 +1188,17 @@ public class BRD_Reborn : BardRotation
 		// Capped gauge in a long planned hold: the buffs it waits for are held, and the gauge refills before the window.
 		if (SoulVoice >= 100 && LongPlannedHold)
 		{
-			return true;
+			// Keep the gauge across imminent jumps: queued Apex, Blast and their damage must fit before downtime.
+			var downtimeIn = BMRDowntimeIn;
+			var targetLife = ApexArrowPvE.Target.Target?.GetTTK() ?? float.NaN;
+			var payloadTime = GCDTime(2) + 0.5f;
+			return !(downtimeIn >= 0f && downtimeIn <= payloadTime || targetLife >= 0f && targetLife <= payloadTime);
+		}
+
+		// Near Battle Voice takes precedence over the capped-Minuet dump below.
+		if (SoulVoice >= SoulVoiceConfig && BattleVoicePvE.Cooldown.WillHaveOneCharge(25))
+		{
+			return false;
 		}
 
 		if (Song == Song.WanderersMinuet && SoulVoice >= 100 && !HasRagingStrikes && !RagingStrikesPvE.Cooldown.WillHaveOneCharge(10))
@@ -1195,11 +1207,6 @@ public class BRD_Reborn : BardRotation
 		}
 
 		if (Song == Song.WanderersMinuet && SoulVoice >= 80 && !HasRagingStrikes)
-		{
-			return false;
-		}
-
-		if (SoulVoice >= SoulVoiceConfig && BattleVoicePvE.Cooldown.WillHaveOneCharge(25))
 		{
 			return false;
 		}

@@ -54,6 +54,36 @@ var seedStart = int.Parse(Opt("--seed-start") ?? "0");
 var configPath = Opt("--config") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "XIVLauncher", "pluginConfigs", "RotationSolver.json");
 
 var timeline = Timeline.Load(path);
+if (args.Contains("--check-brd-apex-policy"))
+{
+	BardApexPolicyCheck.Run(timeline);
+	return 0;
+}
+if (args.Contains("--check-application-timing"))
+{
+	ApplicationTimingCheck.Run(timeline);
+	return 0;
+}
+if (args.Contains("--check-reference-calibration"))
+{
+	ReferenceCalibrationCheck.Run(timeline);
+	return 0;
+}
+if (args.Contains("--check-return-positions"))
+{
+	ReturnPositionCheck.Run(timeline);
+	return 0;
+}
+if (args.Contains("--check-geometry"))
+{
+	GeometryCheck.Run(timeline);
+	return 0;
+}
+if (args.Contains("--check-dot-targeting"))
+{
+	DotTargetingCheck.Run(timeline);
+	return 0;
+}
 if (args.Contains("--check-ct-recovery"))
 {
 	BardCtRecoveryCheck.Run(timeline);
@@ -92,7 +122,8 @@ for (var seed = seedStart; seed < seedStart + seeds; seed++)
 	if (seedReport)
 		Console.WriteLine("SEED " + JsonSerializer.Serialize(new { seed, total = runs[^1].Total / timeline.Duration,
 			phase = byPhase, byAction = runs[^1].ByAction,
-			casts = Game.Casts.Select(c => new { time = c.Time, action = c.Action, damage = c.Damage }) }));
+			casts = Game.Casts.Select(c => new { time = c.Time, action = c.Action, damage = c.Damage }),
+			applications = Game.DamageApplications }));
 	if (trace && seed == seedStart)
 	{
 		foreach (var (t, a, target, damage) in Game.Casts) Console.WriteLine($"  {t,7:F2} {a}{(target == null ? "" : " -> " + target)}{(damage > 0 ? $"  {damage:F0}" : "")}");
@@ -107,6 +138,9 @@ if (checkCtCodas)
 
 // The log on the same scale: each hit with its crit/DH luck swapped for the expected value, in the job's potency units.
 var log = LogTotals(NewJob().LogPotency(timeline));
+if (seedReport)
+	Console.WriteLine("REFERENCE " + JsonSerializer.Serialize(new { total = log.Total / timeline.Duration,
+		phase = phases.Select(p => log.ByPhase(p.Start, p.End)) }));
 var sim = runs.Average(r => r.Total);
 Console.WriteLine();
 Console.WriteLine($"{"",-14}{"Sim",10}{"Log",10}{"Diff",8}   (potency/s, expected crits; sim = mean of {seeds} seeds, sd {Sd(runs.Select(r => r.Total / timeline.Duration)):F1})");
@@ -221,7 +255,7 @@ internal static class Driver
 		IAction? queued = null; // ActionHelper.CanUseGCD: within the action-ahead window RSR presses the GCD and the game queues it
 		while (Game.Now < Game.Timeline.Duration)
 		{
-			Game.Step(dt);
+			Game.Step(Math.Min(dt, Game.Timeline.Duration - Game.Now));
 			afterStep?.Invoke();
 			if (!Game.InCombat || Game.Locked) { queued = null; continue; }
 			if (Game.AnimationLock > 0f) continue;

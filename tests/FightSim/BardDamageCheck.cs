@@ -1,5 +1,6 @@
 using Dalamud.Game.ClientState.JobGauge.Enums;
 using RotationSolver.Basic.Data;
+using RotationSolver.RebornRotations.Ranged;
 using static RotationSolver.Basic.Data.ActionID;
 
 namespace FightSim;
@@ -158,8 +159,35 @@ internal static class BardDamageCheck
 			var bard = new Bard(0.2f, 0.2f);
 			Game.Reset(timeline, bard, 0);
 			Game.Step(at);
-			Require(Game.Target != null && Game.AffectedBy(bard.Spec(LadonsbitePvE), Game.Target).Length == loggedTargets,
-				$"logged P4 Ladonsbite at {at:F3}s reaches its {loggedTargets} observed targets");
+			Require(Game.Target != null, $"logged P4 Ladonsbite at {at:F3}s has an aim target");
+			var candidates = Game.AffectedBy(bard.Spec(LadonsbitePvE), Game.Target!);
+			var recipients = candidates.Where((target, i) => Game.Enemies.First(e => e.Chara == target).Actor.Spans
+				.Any(s => at + BardApplicationTiming.Delay("Ladonsbite", i) >= s[0]
+					&& at + BardApplicationTiming.Delay("Ladonsbite", i) < s[1])).ToArray();
+			Require(recipients.Length == loggedTargets,
+				$"logged P4 Ladonsbite at {at:F3}s has {candidates.Length} cast candidates and {loggedTargets} delayed recipients");
+		}
+		// Independent native packet 48940: 23898204 cast, 23899314 damage; origin 23191815. Frost disappears at 706.879s.
+		// Both bosses intersect the cast cone; only Darkness remains when damage applies at 707.499s.
+		if (timeline.Source.Contains("zX9LjrWh3v1F8AMQ", StringComparison.Ordinal))
+		{
+			var bard = new Bard(.2f, .2f);
+			Game.Reset(timeline, bard, 0);
+			Game.Step(706.389f);
+			_ = new BRD_Plan();
+			Require(BRD_Plan.LadonsbitePvE.CanUse(out var ladonsbite, skipAoeCheck: true, skipTTKCheck: true),
+				"boundary Ladonsbite is selectable through the normal action resolver");
+			Require(Game.Target != null && Game.AffectedBy(bard.Spec(LadonsbitePvE), Game.Target).Length == 2,
+				"packet 48940 boundary has two geometric candidates at cast time");
+			var castIndex = Game.Casts.Count;
+			Game.Execute(ladonsbite);
+			Equal(Game.Casts[castIndex].Damage, 0, "packet 48940 does not deal immediate damage");
+			Game.Step(1.4f);
+			var emitted = Game.DamageApplications.Where(h => h.CastIndex == castIndex && h.Applied).ToArray();
+			Require(emitted.Length == 1 && emitted[0].Target == "46.1",
+				"packet 48940 emits one application to Darkness and none to disappeared Frost");
+			Require(emitted[0].Time >= 707.49f && emitted[0].Time <= 707.64f,
+				"packet 48940 application follows the measured first/second recipient delay");
 		}
 		Console.WriteLine($"BRD damage model: {checks} checks passed.");
 	}

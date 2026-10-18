@@ -14,7 +14,7 @@ internal static class BardCtRecoveryCheck
 	{
 		var fixture = timeline with
 		{
-			Actors = [Actor("oracle", 0x45A7, 500, 610), Actor("pair", 0x45A9, 610, 775), Actor("pandora", 0x45AF, 853, 2000)],
+			Actors = [Actor("oracle", 0x45A7, 500, 610), Actor("pair", 0x45A9, 610, 782), Actor("pandora", 0x45AF, 853, 2000)],
 			Duration = 2000, PartyBuffs = [], PlayerDebuffs = [], EnemyDebuffs = [], LoggedCasts = [], EnemyCasts = [],
 			PlayerTarget = [], PlayerPos = [[0f, 100f, 100f]], PlanWindows = [],
 		};
@@ -56,19 +56,39 @@ internal static class BardCtRecoveryCheck
 		Bard.Gauge.Repertoire = 1;
 		Require(Select(delayed) == null, "CT recovery must keep a running Minuet and its Repertoire for the pair's return");
 		Game.Step(781f - Game.Now - 1f);
-		Require(Select(delayed)?.ID == (uint)MagesBalladPvE, "new Repertoire after a confirmed PP must not postpone the Codas past Minuet's last GCD");
+		Require(Select(delayed) == null, "one raw second of Minuet must survive both Coda recovery and ordinary song switching");
+		Game.Step(.51f);
+		Require(Select(delayed)?.ID == (uint)PitchPerfectPvE, "the last usable Repertoire must drain before recovering Codas");
+		Game.Execute(Select(delayed)!);
+		Game.Step(.7f);
+		Require(Select(delayed)?.ID == (uint)MagesBalladPvE, "draining the final PP must release Coda recovery");
+
+		var queued = Reset(true, true, false);
+		Set(queued, "_ctRecoveryPpDrained", true);
+		Game.Step(780f - Game.Now);
+		Require(BRD_Plan.BurstShotPvE.CanUse(out var shot), "queued-GCD fixture must have an executable GCD");
+		Game.Execute(shot);
+		Game.Step(.7f);
+		Bard.Gauge.SongEnd = Game.Now + 3.14f;
+		Bard.Gauge.Repertoire = 0;
+		Require(Game.GcdRemain > 1f && Select(queued) == null, "3.14 raw seconds must not be shortened by the remaining queued GCD");
 
 		var expired = Reset(true, true, false);
 		Bard.Gauge.Repertoire = 0;
-		Require(Select(expired) == null, "confirmed CT recovery holds a running Minuet until its last GCD");
+		Require(Select(expired) == null, "confirmed CT recovery holds a running Minuet until its final weave");
 		Game.Step(781f - Game.Now - 1f);
+		Bard.Gauge.Repertoire = 0;
+		Require(Select(expired) == null, "an expired Finale must not restore the old last-GCD cutoff");
+		Game.Step(.51f);
+		Bard.Gauge.Repertoire = 0;
 		var ballad = Select(expired);
-		Require(ballad?.ID == (uint)MagesBalladPvE, "pending CT Ballad must recover at Minuet's last GCD despite the late Minuet and expired Finale");
+		Require(ballad?.ID == (uint)MagesBalladPvE, "pending CT Ballad must recover in Minuet's final raw half-second despite the expired Finale");
 		Game.Execute(ballad!);
 		Game.Step(.7f);
 		var army = Select(expired);
 		Require(army?.ID == (uint)ArmysPaeonPvE, "confirmed CT recovery must survive Radiant Finale expiry");
 		Game.Execute(army!);
+		Game.Step(782.1f - Game.Now);
 		Require(Game.Cooldown(TheWanderersMinuetPvE).FullAt - Game.Now > Game.DowntimeEndIn + 2.5f,
 			"fixture reproduces the live Minuet cooldown outside the generic grab allowance");
 		Game.Step(853.1f - Game.Now);

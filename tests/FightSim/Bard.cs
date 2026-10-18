@@ -54,7 +54,7 @@ public sealed class Bard : IJob
 		new(IronJawsPvE, 3560, true, 56),
 		new(QuickNockPvE, 106, true, 18, Shape: AoeShape.Cone, Radius: 12), new(LadonsbitePvE, 25783, true, 82, Shape: AoeShape.Cone, Radius: 12),
 		new(WideVolleyPvE, 36974, true, 25, Shape: AoeShape.CircleOnTarget, Radius: 5), new(ShadowbitePvE, 16494, true, 72, Shape: AoeShape.CircleOnTarget, Radius: 5),
-		new(ApexArrowPvE, 16496, true, 80, Shape: AoeShape.CircleOnTarget, Radius: 2), new(BlastArrowPvE, 25784, true, 86, Shape: AoeShape.CircleOnTarget, Radius: 2),
+		new(ApexArrowPvE, 16496, true, 80, Shape: AoeShape.Line, Radius: 25), new(BlastArrowPvE, 25784, true, 86, Shape: AoeShape.Line, Radius: 25),
 		new(ResonantArrowPvE, 36976, true, 96, Shape: AoeShape.CircleOnTarget, Radius: 5), new(RadiantEncorePvE, 36977, true, 100, Shape: AoeShape.CircleOnTarget, Radius: 5),
 		new(RagingStrikesPvE, 101, false, 4, 120, Shape: AoeShape.Self),
 		new(BloodletterPvE, 110, false, 12, 15, 3, Group: HeartbreakShotPvE), new(HeartbreakShotPvE, 36975, false, 92, 15, 3),
@@ -168,8 +168,12 @@ public sealed class Bard : IJob
 
 	private void ApplyDot(IBattleChara target, StatusID dot)
 	{
-		target.Statuses[dot] = 45f;
-		_snapshots[(target.GameObjectId, dot)] = Game.Multiplier(target);
+		var snapshot = Game.Multiplier(target);
+		Game.ApplyTargetEffect(target, () =>
+		{
+			target.Statuses[dot] = 45f;
+			_snapshots[(target.GameObjectId, dot)] = snapshot;
+		});
 	}
 
 	private void Repertoire()
@@ -296,7 +300,21 @@ public sealed class Bard : IJob
 	public List<(float T, string Name, double P)> LogPotency(Timeline t)
 	{
 		var critDamage = _critDamage;
-		var casts = t.LoggedCasts.Select(c => (T: c[0].GetSingle(), Name: c[1].GetString()!)).ToList();
+		var casts = t.LoggedCasts.Select(c => (T: c[0].GetSingle(), Name: c[1].GetString()!)).OrderBy(c => c.T).ToList();
+		var codas = new HashSet<string>();
+		var finales = new List<(float T, int Codas)>();
+		var previousCast = float.NegativeInfinity;
+		foreach (var cast in casts)
+		{
+			if (t.PlayerDebuffs.Any(d => d.Name == "Dead" && d.Start > previousCast && d.Start <= cast.T)) codas.Clear();
+			if (cast.Name is "The Wanderer's Minuet" or "Mage's Ballad" or "Army's Paeon") codas.Add(cast.Name);
+			if (cast.Name == "Radiant Finale")
+			{
+				finales.Add((cast.T, codas.Count));
+				codas.Clear();
+			}
+			previousCast = cast.T;
+		}
 		bool Within(string name, float seconds, float at) => casts.Any(c => c.Name.Contains(name) && at >= c.T && at < c.T + seconds);
 		Song LoggedSong(float at)
 		{
@@ -309,7 +327,10 @@ public sealed class Bard : IJob
 		{
 			var m = 1.0;
 			if (Within("Raging Strikes", 20, at)) m *= 1.15;
-			if (Within("Radiant Finale", 20, at)) m *= 1.06; // ponytail: assumes 3 Codas, as nearly every logged Finale had
+			var finale = finales.LastOrDefault(f => f.T <= at);
+			if (finale.Codas > 0 && at < finale.T + 20
+				&& !t.PlayerDebuffs.Any(d => d.Name == "Dead" && d.Start >= finale.T && d.Start <= at))
+				m *= 1 + 0.02 * finale.Codas;
 			if (Within("Gemdraught", 30, at)) m *= Game.PotionMultiplier;
 			if (LoggedSong(at) == Song.MagesBallad) m *= 1.01;
 			foreach (var b in t.PartyBuffs) if (at >= b.Start && at < b.End) m *= b.Mult;
@@ -321,7 +342,19 @@ public sealed class Bard : IJob
 			* (1 + 0.25 * (_dhRate + (Within("Battle Voice", 20, at) ? 0.2 : 0) + (LoggedSong(at) == Song.ArmysPaeon ? 0.03 : 0)));
 		var hits = t.LoggedHits.Select(h => (T: h[0].GetSingle(), Name: h[1].GetString()! + (h[5].GetBoolean() ? " (DoT)" : ""),
 			Base: h[2].GetDouble() / (h[3].GetBoolean() ? critDamage : 1) / (h[4].GetBoolean() ? 1.25 : 1))).ToList();
-		var k = hits.Where(h => h.Name == "Burst Shot").Average(h => h.Base / (220 * B(h.T)));
+		float? CalibrationTaken(float at)
+		{
+			var candidates = t.Actors.Where(a => a.Spans.Any(s => at >= s[0] && at < s[1])).ToList();
+			var target = t.PlayerTarget.LastOrDefault(p => p[0].GetSingle() <= at);
+			var selected = candidates.FirstOrDefault(a => a.Key == target?[1].GetString());
+			if (selected != null) return selected.Taken;
+			// shortcut: hits lack target IDs; omit ambiguous calibration samples until target IDs are exported.
+			var taken = candidates.Select(a => a.Taken).Distinct().ToArray();
+			return taken.Length == 1 ? taken[0] : null;
+		}
+		var k = hits.Where(h => h.Name == "Burst Shot")
+			.Select(h => (Hit: h, Taken: CalibrationTaken(h.T))).Where(h => h.Taken > 0)
+			.Average(h => h.Hit.Base / (220 * B(h.Hit.T) * h.Taken!.Value));
 		return hits.Select(h => (h.T, h.Name, h.Base * E(h.T) / k)).ToList();
 	}
 }

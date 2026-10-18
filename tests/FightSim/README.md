@@ -203,6 +203,31 @@ P5 Finales, all planned Battle Voice windows, and preserved P5 song coverage. `-
 phase totals and casts; `--seed-start N` selects a reproducible seed range. `--check-brd-model` runs isolated emitted-damage
 checks for the corrected mechanics. Matching seed numbers do not guarantee matching proc histories after different casts.
 
+`--check-dot-targeting` exercises production BRD DoT predicates through automatic status-action targeting, including
+refreshing an eligible second boss without changing the recorded hard target. Other hostile actions retain fixture targeting.
+`--check-geometry` checks Apex/Blast's 25y-long, 4y-wide rectangle against enemy hitboxes, including origin overlaps and
+corner misses. Lines aim at the selected target because timelines do not record facing. Native manual-mode restrictions,
+visibility, and exact hitbox sizes remain outside this replay model.
+
+`--check-reference-calibration` checks that reduced-damage targets do not depress the Burst Shot calibration factor;
+normalized reference damage still retains their mitigation. Without hit target IDs, recorded targets resolve overlapping
+actors where possible; samples with unknown or mixed damage-taken multipliers are excluded from calibration.
+`--check-return-positions` checks return-pose sampling and two-target Encore damage. Enemy positions may use the first
+same-span sample up to 500ms after targetability starts, only until that sample's timestamp. Later movement, HP, and
+player positions retain chronological sampling; the bounded return pose remains an approximation.
+
+`--check-application-timing` checks delayed damage, target disappearance, originating-cast attribution, cast-time
+snapshots, delayed DoT application/duration, reset and the exact replay end. Normal BRD actions and auto-attacks use
+packet-matched P4 median delays in `BardApplicationTiming.cs`; buffs, cooldowns, resources and existing self-proc timing
+remain cast-based. Geometry is resolved at cast, damage is checked against targetability at each application, and DoTs
+start on application with the cast snapshot. `Bard.Execute` calls in isolated potency tests remain immediate; complete
+replays and application regressions use `Game.Execute`. MCH application timing is unchanged.
+
+These delays come from one reference clear, rather than a native distance-aware timing model. Recipient order follows
+the resolved target list; additional recipients reuse the second-recipient estimate. `--seed-report` includes landed
+and dropped damage applications with their originating cast, plus a full-precision `REFERENCE` summary. Finale reference
+calibration now infers distinct Codas from logged songs, consumes them at Finale, and clears them on death.
+
 ## Not modelled
 
 - Phase timings are fixed by the log. Your damage does not move HP checks or phase ends.
@@ -217,6 +242,10 @@ checks for the corrected mechanics. Matching seed numbers do not guarantee match
 `--check-ct-recovery` runs stateful production song selection checks for delayed CT Finale status, unconfirmed requests,
 repeated Pitch Perfect procs, Finale expiry, a Minuet cooldown later than the generic downtime allowance, actual Ballad
 recovery, and the resulting three-Coda P5 Finale. Full clear replays complement these dispatch/state reproductions.
+
+`--check-brd-apex-policy` exercises the production Apex selector around the 25s Battle Voice hold, including capped
+Minuet, distant buffs, AutoBurst off, long planned holds, imminent downtime boundaries, active buffs, and final-kill exceptions. CT recovery checks
+also cover the raw final half-second of Minuet, queued-GCD timing, and draining the last usable Pitch Perfect.
 
 ## BRD damage optimization comparison (2026-10-17)
 

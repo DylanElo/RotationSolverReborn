@@ -323,7 +323,7 @@ namespace RotationSolver.Basic.Actions
 			return combo.Contains(DataCenter.LastComboAction) && DataCenter.ComboTime >= DataCenter.DefaultGCDRemain;
 		}
 
-		// ActionTargetInfo.FindTarget, for what a ranged DPS uses: self, the current target, or the AoE around it.
+		// Automatic DoT targeting mirrors GetCanTargets: filter each enemy before selecting one.
 		private TargetResult? FindTarget(bool skipAoeCheck, bool skipStatusProvideCheck, bool skipTargetStatusNeedCheck)
 		{
 			var spec = Game.Job.Spec(Game.Job.Adjusted(ActionId));
@@ -331,13 +331,23 @@ namespace RotationSolver.Basic.Actions
 			{
 				return new TargetResult { Target = Game.Player, AffectedTargets = [] };
 			}
-			var target = DataCenter.CurrentTarget;
-			if (target == null || !Game.InRange(target)) return null;
-			if (Setting.CanTarget != null && !Setting.CanTarget(target)) return null;
-			if (!CheckStatus(target, skipStatusProvideCheck, skipTargetStatusNeedCheck)) return null;
-			var affected = Game.AffectedBy(spec, target);
-			if (spec.Shape != AoeShape.Single && !skipAoeCheck && affected.Length < Config.AoeCount) return null;
-			return new TargetResult { Target = target, AffectedTargets = affected };
+			var current = DataCenter.CurrentTarget;
+			// shortcut: replay has no manual-mode/visibility data; DoTs use automatic targeting, with the fixture target preferred.
+			var dot = spec.Shape == AoeShape.Single && (Setting.TargetStatusProvide?.Length > 0 || Setting.TargetStatusNeed?.Length > 0);
+			IEnumerable<IBattleChara> candidates = dot
+				? Game.Hostiles.OrderByDescending(t => t == current)
+				: current == null ? [] : [current];
+			foreach (var target in candidates)
+			{
+				if (!Game.InRange(target) || Setting.CanTarget != null && !Setting.CanTarget(target)) continue;
+				if (!CheckStatus(target, skipStatusProvideCheck, skipTargetStatusNeedCheck)) continue;
+				var ttk = target.GetTTK();
+				if (dot && !float.IsNaN(ttk) && ttk < Config.TimeToKill) continue;
+				var affected = Game.AffectedBy(spec, target);
+				if (spec.Shape != AoeShape.Single && !skipAoeCheck && affected.Length < Config.AoeCount) continue;
+				return new TargetResult { Target = target, AffectedTargets = affected };
+			}
+			return null;
 		}
 
 		// ActionTargetInfo.CheckStatus
