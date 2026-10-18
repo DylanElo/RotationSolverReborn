@@ -407,8 +407,11 @@ public class BRD_Reborn : BardRotation
 		&& SecondSong == SongTrack.MagesBallad && ThirdSong == SongTrack.ArmysPaeon;
 	private bool CtCodaRecoveryPending => _ctFinaleConfirmed && DefaultCtSongOrder && !HasBattleVoice
 		&& (Array.IndexOf(Coda, Song.ArmysPaeon) < 0 || Array.IndexOf(Coda, Song.MagesBallad) < 0);
-	private bool HoldCtMinuetTail => CtCodaRecoveryPending && AliveP4Pair && Song == Song.WanderersMinuet
-		&& SongTime + DataCenter.DefaultGCDRemain > 0.5f;
+	// The gauge reports no song / a 0 timer for a moment after a cast (live 10-18: Paeon 0.5s after the CT Minuet, two P5 Codas),
+	// so a Minuet cast in the last 10s counts as running whatever the gauge says; same guard as the ordinary song switch.
+	private bool HoldCtMinuetTail => CtCodaRecoveryPending && AliveP4Pair
+		&& ((Song == Song.WanderersMinuet && SongTime + DataCenter.DefaultGCDRemain > 0.5f)
+			|| (TheWanderersMinuetPvE.Cooldown.IsCoolingDown && !TheWanderersMinuetPvE.Cooldown.ElapsedAfter(10)));
 	private bool AliveP4Pair => DataCenter.IsInFRU
 		&& (CurrentTarget is { BaseId: 0x45A9 or 0x45AB } pair ? pair.GetHealthRatio() > 0.05f
 			: CurrentTarget == null && _lastTargetBaseId is 0x45A9 or 0x45AB && _lastTargetHp > 0.05f);

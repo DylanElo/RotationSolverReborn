@@ -73,6 +73,19 @@ internal static class BardCtRecoveryCheck
 		Bard.Gauge.Repertoire = 0;
 		Require(Game.GcdRemain > 1f && Select(queued) == null, "3.14 raw seconds must not be shortened by the remaining queued GCD");
 
+		// Live 2026-10-18: Minuet cast at the CT Stun, the gauge still showed no song / a 0 timer, and recovery cast Army's Paeon 0.5s later;
+		// the P5 Finale then had two Codas. A Minuet cast in the last seconds is a running Minuet whatever the gauge says.
+		foreach (var lagged in new[] { Song.None, Song.WanderersMinuet })
+		{
+			var fresh = Reset(true, true, false);
+			Bard.Gauge.Song = lagged;
+			Bard.Gauge.SongEnd = Game.Now;
+			Bard.Gauge.Repertoire = 0;
+			Game.Cooldown(TheWanderersMinuetPvE).FullAt = Game.Now + 119.98f;
+			Game.Cooldown(MagesBalladPvE).FullAt = Game.Now + 46f;
+			Require(Select(fresh) == null, $"CT recovery must not replace a Minuet cast moments ago while the gauge reads {lagged}");
+		}
+
 		var expired = Reset(true, true, false);
 		Bard.Gauge.Repertoire = 0;
 		Require(Select(expired) == null, "confirmed CT recovery holds a running Minuet until its final weave");
