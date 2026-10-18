@@ -1727,9 +1727,7 @@ public partial class CustomRotation
 	/// </summary>
 	public static bool HasWeaved()
 	{
-		// Returns true if the last action and last ability are the same (i.e., an oGCD was weaved).
-		// Returns false otherwise.
-		return IsLastAction() == IsLastAbility();
+		return IActionHelper.IsLastActionAbility();
 	}
 
 	/// <summary>
