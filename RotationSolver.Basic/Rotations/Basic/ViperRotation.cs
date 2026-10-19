@@ -60,32 +60,32 @@ public partial class ViperRotation
 	/// <summary>
 	/// Indicates that the player has Dread Combo active and both HuntersCoil and SwiftskinsCoil available.
 	/// </summary>
-	public static bool DreadActive => JobGauge.DreadCombo.HasFlag(DreadCombo.Dreadwinder);
+	public static bool DreadActive => JobGauge.DreadCombo == DreadCombo.Dreadwinder;
 
 	/// <summary>
 	/// Indicates that the player has Dread Combo active and only SwiftskinsCoil available.
 	/// </summary>
-	public static bool SwiftskinsCoilOnly => JobGauge.DreadCombo.HasFlag(DreadCombo.HuntersCoil);
+	public static bool SwiftskinsCoilOnly => JobGauge.DreadCombo == DreadCombo.HuntersCoil;
 
 	/// <summary>
 	/// Indicates that the player has Dread Combo active and only HuntersCoil available.
 	/// </summary>
-	public static bool HuntersCoilOnly => JobGauge.DreadCombo.HasFlag(DreadCombo.SwiftskinsCoil);
+	public static bool HuntersCoilOnly => JobGauge.DreadCombo == DreadCombo.SwiftskinsCoil;
 
 	/// <summary>
 	/// Indicates that the player has Pit Combo active and both HuntersDen and SwiftskinsDen available.
 	/// </summary>
-	public static bool PitActive => JobGauge.DreadCombo.HasFlag(DreadCombo.PitOfDread);
+	public static bool PitActive => JobGauge.DreadCombo == DreadCombo.PitOfDread;
 
 	/// <summary>
 	/// Indicates that the player has Pit Combo active and only SwiftskinsDen available.
 	/// </summary>
-	public static bool SwiftskinsDenOnly => JobGauge.DreadCombo.HasFlag(DreadCombo.HuntersDen);
+	public static bool SwiftskinsDenOnly => JobGauge.DreadCombo == DreadCombo.HuntersDen;
 
 	/// <summary>
 	/// Indicates that the player has Pit Combo active and only HuntersDen available.
 	/// </summary>
-	public static bool HuntersDenOnly => JobGauge.DreadCombo.HasFlag(DreadCombo.SwiftskinsDen);
+	public static bool HuntersDenOnly => JobGauge.DreadCombo == DreadCombo.SwiftskinsDen;
 
 	// DreadCombo also indicates the states for Reawakend
 
@@ -130,32 +130,32 @@ public partial class ViperRotation
 	/// <summary>
 	/// Indicates if base Death Rattle oGCD is ready.
 	/// </summary>
-	public static bool DeathRattleReady => JobGauge.SerpentCombo.HasFlag(SerpentCombo.DeathRattle);
+	public static bool DeathRattleReady => JobGauge.SerpentCombo == SerpentCombo.DeathRattle;
 
 	/// <summary>
 	/// Indicates if base Last Lash oGCD is ready.
 	/// </summary>
-	public static bool LastLashReady => JobGauge.SerpentCombo.HasFlag(SerpentCombo.LastLash);
+	public static bool LastLashReady => JobGauge.SerpentCombo == SerpentCombo.LastLash;
 
 	/// <summary>
 	/// Indicates if base First Legacy oGCD is ready.
 	/// </summary>
-	public static bool FirstLegacyReady => JobGauge.SerpentCombo.HasFlag(SerpentCombo.FirstLegacy);
+	public static bool FirstLegacyReady => JobGauge.SerpentCombo == SerpentCombo.FirstLegacy;
 
 	/// <summary>
 	/// Indicates if base Second Legacy oGCD is ready.
 	/// </summary>
-	public static bool SecondLegacyReady => JobGauge.SerpentCombo.HasFlag(SerpentCombo.SecondLegacy);
+	public static bool SecondLegacyReady => JobGauge.SerpentCombo == SerpentCombo.SecondLegacy;
 
 	/// <summary>
 	/// Indicates if base Third Legacy oGCD is ready.
 	/// </summary>
-	public static bool ThirdLegacyReady => JobGauge.SerpentCombo.HasFlag(SerpentCombo.ThirdLegacy);
+	public static bool ThirdLegacyReady => JobGauge.SerpentCombo == SerpentCombo.ThirdLegacy;
 
 	/// <summary>
 	/// Indicates if base Fourth Legacy oGCD is ready.
 	/// </summary>
-	public static bool FourthLegacyReady => JobGauge.SerpentCombo.HasFlag(SerpentCombo.FourthLegacy);
+	public static bool FourthLegacyReady => JobGauge.SerpentCombo == SerpentCombo.FourthLegacy;
 
 	/// <summary>
 	/// Indicates if base Twins oGCDs are ready.
