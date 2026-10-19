@@ -254,7 +254,11 @@ Check("inherited medicine honors later configured window", true, medicineGate.In
 var attackCalls = Calls(rotation.GetMethod("AttackAbility",BindingFlags.Instance|BindingFlags.NonPublic)!);
 Check("Zanshin availability checked before cheap downtime dump", true,
     attackCalls.IndexOf("CanUseReadyAction") >= 0 && attackCalls.IndexOf("CanUseReadyAction") < attackCalls.IndexOf("get_HissatsuShintenPvE"));
-Check("actual Senei branch uses terminal release policy", true, attackCalls.Contains("ShouldUseSenei"));
+var seneiRelease = rotation.GetMethods(BindingFlags.Instance | BindingFlags.NonPublic)
+    .SingleOrDefault(m => m.Name.StartsWith("<AttackAbility>g__AllowSenei|"));
+Check("actual Senei branch uses candidate-scoped terminal release policy", true,
+    seneiRelease != null && attackCalls.Contains(seneiRelease.Name)
+    && attackCalls.Contains("CandidateAllowsBurst") && Calls(seneiRelease).Contains("ShouldUseSenei"));
 Check("inherited medicine calls the virtual timing guard", true,
     Calls(rotation.BaseType!.GetMethod("GeneralAbility",BindingFlags.Instance|BindingFlags.NonPublic)!).Contains("get_AllowBurstMedicine"));
 Check("Sync medicine guard invokes tested policy", true,

@@ -1,0 +1,26 @@
+public static class Scenarios{
+public static int Run(){int count=0,failed=0;void Check(string name,Func<bool> check){count++;try{if(check())Console.WriteLine("PASS "+name);else{failed++;Console.WriteLine("FAIL "+name);}}catch(Exception e){failed++;Console.WriteLine("FAIL "+name+" "+e.GetBaseException().Message);}}
+IBattleChara Enemy(ulong id,float dot=0){var t=new IBattleChara{GameObjectId=id};t.Statuses[StatusID.Higanbana]=dot;return t;}
+Sync Setup(IBattleChara? hard,IBattleChara? resolved){Boundary.CurrentTarget=hard;Boundary.HostileTarget=resolved;DataCenter.AllHostileTargets=resolved==null?new():new(){resolved};var r=new Sync();r.HiganbanaPvE.Available=true;return r;}
+var enemy=Enemy(1,40);var friendly=new IBattleChara{GameObjectId=50,Enemy=false};
+Check("friendly hard target cannot clip healthy resolved DoT",()=>Setup(friendly,enemy).GCD()==null);
+enemy.Statuses[StatusID.Higanbana]=3;Check("friendly hard target refreshes expiring resolved DoT",()=>Setup(friendly,enemy).GCD()?.ID==ActionID.HiganbanaPvE);
+var healthy=Enemy(2,40);Check("expiring hard target cannot clip alternate healthy candidate",()=>Setup(enemy,healthy).GCD()==null);
+Check("healthy hard target permits expiring resolved candidate",()=>Setup(healthy,enemy).GCD()?.ID==ActionID.HiganbanaPvE);
+Check("native target eligibility remains authoritative",()=>{var r=Setup(friendly,enemy);r.HiganbanaPvE.NativeCheck=()=>false;return r.GCD()==null;});
+Check("missing resolved target rejected",()=>Setup(friendly,null).GCD()==null);
+Check("final candidate change rechecked",()=>{var r=Setup(enemy,enemy);int calls=0;r.HiganbanaPvE.Resolve=()=>++calls==1?enemy:healthy;return r.GCD()==null;});
+Check("dying resolved candidate rejected",()=>{var dying=Enemy(3);dying.Dying=true;return Setup(enemy,dying).GCD()==null;});
+Check("short-lived resolved candidate rejected",()=>{var dying=Enemy(3);dying.TTK=5;return Setup(enemy,dying).GCD()==null;});
+Check("other boss debuff does not authorize current boss",()=>{var a=Enemy(11);a.Statuses[StatusID.Debuff]=20;var b=Enemy(12);var r=Setup(b,b);DataCenter.AllHostileTargets.Add(a);r.Buffs.Add(new());r.Scan();return r._activePartyBuffs==0&&r._activeAnchorJobs==1&&r._observedPartyBuffs.Count==1;});
+Check("same-frame target switch refreshes overlap",()=>{var a=Enemy(11);a.Statuses[StatusID.Debuff]=20;var b=Enemy(12);var r=Setup(a,a);r.Buffs.Add(new());r.Scan();Boundary.CurrentTarget=b;Boundary.HostileTarget=b;r.Scan();return r._activePartyBuffs==0;});
+Check("same-frame target switch invalidates scheduler decision",()=>{var a=Enemy(11);a.Statuses[StatusID.Debuff]=20;var b=Enemy(12);var r=Setup(a,a);r.Buffs.Add(new());var first=r.GetDecision();Boundary.CurrentTarget=b;Boundary.HostileTarget=b;return first.Burst==SAMSyncPlusBurstGate.Commit&&r.GetDecision().Burst==SAMSyncPlusBurstGate.Hold;});
+Check("marked resolved Ogi candidate qualifies despite unmarked hard target",()=>{var a=Enemy(21,40);a.Statuses[StatusID.Debuff]=20;var b=Enemy(22,40);var r=Setup(b,a);r.HiganbanaPvE.Available=false;r.OgiNamikiriPvE.Available=true;r.Buffs.Add(new());return r.GCD()?.ID==ActionID.OgiNamikiriPvE;});
+Check("unmarked resolved Ogi cannot borrow marked hard target",()=>{var a=Enemy(21,40);a.Statuses[StatusID.Debuff]=20;var b=Enemy(22,40);var r=Setup(a,b);r.HiganbanaPvE.Available=false;r.OgiNamikiriPvE.Available=true;r.Buffs.Add(new());return r.GCD()==null;});
+Check("candidate policy context restored after rejected gate",()=>{var a=Enemy(21,40);a.Statuses[StatusID.Debuff]=20;var b=Enemy(22,40);var r=Setup(b,a);r.Buffs.Add(new());r.Scan();r.HiganbanaPvE.Target.Target=a;return !r.Candidate(r.HiganbanaPvE,()=>false)&&r._burstCandidateTarget==null&&r._candidateDecision==null&&r._activePartyBuffs==0;});
+Check("candidate policy context restored after exception",()=>{var a=Enemy(21,40);a.Statuses[StatusID.Debuff]=20;var b=Enemy(22,40);var r=Setup(b,a);r.Buffs.Add(new());r.Scan();r.HiganbanaPvE.Target.Target=a;try{r.Candidate(r.HiganbanaPvE,()=>throw new Exception("expected"));}catch{}return r._burstCandidateTarget==null&&r._candidateDecision==null&&r._activePartyBuffs==0;});
+Check("native Higanbana status/config protection retained",()=>{var r=Setup(enemy,enemy);return r.GCD()?.ID==ActionID.HiganbanaPvE&&!r.HiganbanaPvE.LastSkipStatusProvideCheck;});
+Check("successful candidate context restored",()=>{var a=Enemy(31);var b=Enemy(32);var r=Setup(b,a);r.HiganbanaPvE.Target.Target=a;return r.Candidate(r.HiganbanaPvE,()=>r._burstCandidateTarget==a)&&r._burstCandidateTarget==null&&r._candidateDecision==null;});
+Check("self-centred action uses affected hostile",()=>{var a=Enemy(31);var b=Enemy(32);var r=Setup(b,a);r.HiganbanaPvE.Target.Target=Boundary.Player;r.HiganbanaPvE.Target.AffectedTargets=[a];return r.Candidate(r.HiganbanaPvE,()=>r._burstCandidateTarget==a);});
+Check("self-centred action without affected hostile rejected",()=>{var r=Setup(enemy,enemy);r.HiganbanaPvE.Target.Target=Boundary.Player;return !r.Candidate(r.HiganbanaPvE,()=>true);});
+Console.WriteLine($"SAM action selection: {count-failed}/{count} passed");return failed==0?0:1;}}

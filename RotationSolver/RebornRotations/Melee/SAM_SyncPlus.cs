@@ -89,6 +89,7 @@ public sealed class SAM_SyncPlus : SAM_Reborn
 	private float _lastPartyBuffScanAt = -1f;
 	private bool _lastPartyBuffScanInCombat;
 	private int _lastPartyBuffScanVersion = -1;
+	private ulong _lastPartyBuffScanTarget;
 	private uint _dungeonTerritory;
 	private bool _dungeonWasInCombat;
 	private bool _dungeonBossEncounter;
@@ -104,6 +105,7 @@ public sealed class SAM_SyncPlus : SAM_Reborn
 	private SAMSyncPlusDecision _decision = SAMSyncPlusDecision.Default;
 	private float _decisionComputedAt = float.MinValue;
 	private bool _decisionComputedInCombat;
+	private ulong _decisionComputedTarget;
 	private readonly List<SAMSyncPlusBurstUse> _burstUses = [];
 	private float _totalHeldSeconds;
 	private string _lastReportedReasonKey = string.Empty;
@@ -120,7 +122,10 @@ public sealed class SAM_SyncPlus : SAM_Reborn
 		&& _activePartyBuffs >= _expectedPartyBuffsCount;
 	private float SecondsInPartyBurst => _partyBurstStartedAt < 0f ? 0f : EncounterTime - _partyBurstStartedAt;
 	private float IkishotenHeldFor => _ikishotenReadyAt < 0f ? 0f : EncounterTime - _ikishotenReadyAt;
-	private static IBattleChara? SchedulerTarget => CurrentTarget ?? HostileTarget;
+	private IBattleChara? _burstCandidateTarget;
+	private SAMSyncPlusDecision? _candidateDecision;
+	private IBattleChara? SchedulerTarget => _burstCandidateTarget
+		?? (CurrentTarget?.IsEnemy() == true ? CurrentTarget : HostileTarget);
 	private bool IsCurrentTargetBoss => SchedulerTarget?.IsBossFromIcon() == true;
 	private bool TargetDying => SchedulerTarget?.IsDying() == true;
 
@@ -192,16 +197,43 @@ public sealed class SAM_SyncPlus : SAM_Reborn
 	{
 		get
 		{
+			if (_candidateDecision.HasValue) return _candidateDecision.Value;
 			var now = EncounterTime;
 			var inCombat = InCombat;
-			if (now == _decisionComputedAt && inCombat == _decisionComputedInCombat) return _decision;
+			var targetId = SchedulerTarget?.GameObjectId ?? 0;
+			if (now == _decisionComputedAt && inCombat == _decisionComputedInCombat
+				&& targetId == _decisionComputedTarget) return _decision;
 
 			_decisionComputedAt = now;
 			_decisionComputedInCombat = inCombat;
+			_decisionComputedTarget = targetId;
 			UpdateBurstTracker();
 			UpdateDungeonTracker();
 
-			_decision = SAMSyncPlusScheduler.Evaluate(new SAMSyncPlusSnapshot(
+			_decision = EvaluateBurstDecision();
+
+			if (_decision.Burst == SAMSyncPlusBurstGate.Commit && IkishotenPvE.Cooldown.HasOneCharge)
+			{
+				_pendingBurstReason = _decision.Reason;
+				_pendingBurstActiveBuffs = _activePartyBuffs;
+				_pendingBurstExpectedBuffs = _expectedPartyBuffsCount;
+			}
+
+			var reasonKey = SAMSyncPlusPolicy.StableDecisionReason(_decision.Reason);
+			if (LogBurstReport && reasonKey != _lastReportedReasonKey && InCombat)
+			{
+				_lastReportedReasonKey = reasonKey;
+				Svc.Log.Info($"[SAM Sync] {now:F1}s {_decision.Burst}/{_decision.Resources}: {_decision.Reason} (buffs {_activePartyBuffs}/{_expectedPartyBuffsCount}, Kenki {Kenki}, Sen {SenCount})");
+			}
+
+			RecordBurstCasts();
+			LogRotationState();
+			return _decision;
+		}
+	}
+
+	private SAMSyncPlusDecision EvaluateBurstDecision()
+		=> SAMSyncPlusScheduler.Evaluate(new SAMSyncPlusSnapshot(
 				IsBurst,
 				ReserveBurst,
 				SynchronizePartyBurst,
@@ -224,26 +256,6 @@ public sealed class SAM_SyncPlus : SAM_Reborn
 					BurstPayloadWindow,
 					OverlapWaitSeconds),
 				LookAheadSeconds));
-
-			if (_decision.Burst == SAMSyncPlusBurstGate.Commit && IkishotenPvE.Cooldown.HasOneCharge)
-			{
-				_pendingBurstReason = _decision.Reason;
-				_pendingBurstActiveBuffs = _activePartyBuffs;
-				_pendingBurstExpectedBuffs = _expectedPartyBuffsCount;
-			}
-
-			var reasonKey = SAMSyncPlusPolicy.StableDecisionReason(_decision.Reason);
-			if (LogBurstReport && reasonKey != _lastReportedReasonKey && InCombat)
-			{
-				_lastReportedReasonKey = reasonKey;
-				Svc.Log.Info($"[SAM Sync] {now:F1}s {_decision.Burst}/{_decision.Resources}: {_decision.Reason} (buffs {_activePartyBuffs}/{_expectedPartyBuffsCount}, Kenki {Kenki}, Sen {SenCount})");
-			}
-
-			RecordBurstCasts();
-			LogRotationState();
-			return _decision;
-		}
-	}
 
 	#region Burst & Action Hooks
 	private bool ShouldCommitPersonalBurst => Decision.Burst == SAMSyncPlusBurstGate.Commit;
@@ -286,8 +298,13 @@ public sealed class SAM_SyncPlus : SAM_Reborn
 			&& !SAMSyncCycle.RequiredStatusCovers(
 				StatusHelper.PlayerStatusTime(action.Setting.StatusFromSelf, needed),
 				action.Info.IsRealGCD ? DataCenter.DefaultGCDRemain : 0f, action.Info.CastTime)) return false;
-		return action.CanUse(out act, skipStatusNeed: true,
-			skipComboCheck: skipComboCheck, skipAoeCheck: skipAoeCheck);
+		if (action.CanUse(out act, skipStatusNeed: true,
+			skipComboCheck: skipComboCheck, skipAoeCheck: skipAoeCheck)
+			&& (action != OgiNamikiriPvE && action != ZanshinPvE
+				|| CandidateAllowsBurst(action, () => action == OgiNamikiriPvE ? AllowOgiNamikiri
+					: ShouldDumpKenkiBeforeDowntime || ShouldSpendPayload(StatusHelper.PlayerStatusTime(true, StatusID.ZanshinReady_3855))))) return true;
+		act = null;
+		return false;
 	}
 
 	protected override bool AttackAbility(IAction nextGCD, out IAction? act)
@@ -300,8 +317,7 @@ public sealed class SAM_SyncPlus : SAM_Reborn
 			&& MeikyoShisuiPvE.CanUse(out act, usedUp: true)) return true;
 
 		// Consume a ready payload before spending its Kenki on the downtime dump.
-		if ((ShouldDumpKenkiBeforeDowntime || ShouldSpendPayload(StatusHelper.PlayerStatusTime(true, StatusID.ZanshinReady_3855)))
-			&& CanUseReadyAction(ZanshinPvE, out act))
+		if (CanUseReadyAction(ZanshinPvE, out act))
 		{
 			return true;
 		}
@@ -313,19 +329,13 @@ public sealed class SAM_SyncPlus : SAM_Reborn
 		}
 
 		// 4. Senei / Guren retain their 60s cadence; only hold near an actual/predicted buff window.
-		if (SAMSyncPlusPolicy.ShouldUseSenei(IkishotenPvE.Cooldown.IsCoolingDown,
+		bool AllowSenei() => SAMSyncPlusPolicy.ShouldUseSenei(IkishotenPvE.Cooldown.IsCoolingDown,
 			TargetDying || TargetEndsBeforeBurstPayload, ShouldDumpKenkiBeforeDowntime,
-			ShouldHoldFlexibleResources, Kenki, HasZanshinReady))
-		{
-			if (HissatsuGurenPvE.CanUse(out act, skipAoeCheck: !HissatsuSeneiPvE.EnoughLevel))
-			{
-				return true;
-			}
-			if (HissatsuSeneiPvE.CanUse(out act))
-			{
-				return true;
-			}
-		}
+			ShouldHoldFlexibleResources, Kenki, HasZanshinReady);
+		if (HissatsuGurenPvE.CanUse(out act, skipAoeCheck: !HissatsuSeneiPvE.EnoughLevel)
+			&& CandidateAllowsBurst(HissatsuGurenPvE, AllowSenei)) return true;
+		if (HissatsuSeneiPvE.CanUse(out act)
+			&& CandidateAllowsBurst(HissatsuSeneiPvE, AllowSenei)) return true;
 
 		// 7. Kenki Spenders (Shinten / Kyuten):
 		// Respect banking for burst (pool up to 85 Kenki before the window), but dump if capping or in burst
@@ -365,12 +375,14 @@ public sealed class SAM_SyncPlus : SAM_Reborn
 		if (!TendoSetsugekkaPvE.EnoughLevel || NumberOfHostilesInRange >= 3)
 			return base.GeneralGCD(out act);
 
-		var s = CycleState;
+		var higanbanaAvailable = TryUseHiganbana(out _);
+		var s = higanbanaAvailable
+			? CycleState with { Dot = HiganbanaPvE.Target.Target!.StatusTime(true, StatusID.Higanbana), Ending = false }
+			: CycleState;
 		var allowDotTarget = !HiganbanaTargets || NumberOfAllHostilesInRange < 2;
 		var selected = SAMSyncCycle.Select(s,
-			AllowHiganbana && DamageBuffCovers(HiganbanaPvE) && allowDotTarget && HiganbanaPvE.CanUse(out _, skipComboCheck: true,
-				skipStatusProvideCheck: true, skipTTKCheck: IsCurrentTargetBoss || IsInHighEndDuty),
-			AllowOgiNamikiri && DamageBuffCovers(OgiNamikiriPvE) && CanUseReadyAction(OgiNamikiriPvE, out _),
+			higanbanaAvailable && allowDotTarget,
+			DamageBuffCovers(OgiNamikiriPvE) && CanUseReadyAction(OgiNamikiriPvE, out _),
 			KaeshiNamikiriPvE.CanUse(out _),
 			AllowIaijutsu && DamageBuffCovers(TendoSetsugekkaPvE) && CanUseReadyAction(TendoSetsugekkaPvE, out _, skipComboCheck: true),
 			AllowIaijutsu && DamageBuffCovers(MidareSetsugekkaPvE) && MidareSetsugekkaPvE.CanUse(out _, skipComboCheck: true),
@@ -388,10 +400,43 @@ public sealed class SAM_SyncPlus : SAM_Reborn
 		};
 		if (chosen != null && selected is not SAMCycleGcd.Higanbana
 			&& CanUseReadyAction(chosen, out act, skipComboCheck: true)) return true;
-		if (selected == SAMCycleGcd.Higanbana && chosen != null && chosen.CanUse(out act, skipComboCheck: true,
-			skipStatusProvideCheck: selected == SAMCycleGcd.Higanbana,
-			skipTTKCheck: selected == SAMCycleGcd.Higanbana && (IsCurrentTargetBoss || IsInHighEndDuty))) return true;
+		if (selected == SAMCycleGcd.Higanbana && TryUseHiganbana(out act)) return true;
 		return CycleCombo(out act);
+	}
+
+	private bool TryUseHiganbana(out IAction? act)
+	{
+		if (DamageBuffCovers(HiganbanaPvE)
+			&& HiganbanaPvE.CanUse(out act, skipComboCheck: true,
+				skipTTKCheck: IsCurrentTargetBoss || IsInHighEndDuty)
+			&& CandidateAllowsBurst(HiganbanaPvE, () => AllowHiganbana && SAMSyncCycle.HiganbanaDue(CycleState))) return true;
+		act = null;
+		return false;
+	}
+
+	private bool CandidateAllowsBurst(IBaseAction action, Func<bool> allowed)
+	{
+		var candidate = action.Target.Target;
+		if (candidate?.GameObjectId == Player?.GameObjectId)
+			candidate = action.Target.AffectedTargets.FirstOrDefault(t => t.GameObjectId == SchedulerTarget?.GameObjectId)
+				?? action.Target.AffectedTargets.FirstOrDefault();
+		if (candidate == null || !candidate.IsEnemy()) return false;
+
+		var previousTarget = _burstCandidateTarget;
+		var previousDecision = _candidateDecision;
+		try
+		{
+			_burstCandidateTarget = candidate;
+			UpdateExpectedPartyBuffs();
+			_candidateDecision = EvaluateBurstDecision();
+			return allowed();
+		}
+		finally
+		{
+			_burstCandidateTarget = previousTarget;
+			_candidateDecision = previousDecision;
+			UpdateExpectedPartyBuffs();
+		}
 	}
 
 	private static bool DamageBuffCovers(IBaseAction action)
@@ -492,7 +537,8 @@ public sealed class SAM_SyncPlus : SAM_Reborn
 			_totalHeldSeconds += elapsed;
 		}
 
-		var partyBurstActive = PartyBurstActive;
+		// Anchor timing follows party cadence even when another boss carries the debuff.
+		var partyBurstActive = _activeAnchorJobs > 0;
 		if (partyBurstActive && !_partyBurstWasActive)
 		{
 			_partyBurstStartedAt = encounterTime;
@@ -581,9 +627,11 @@ public sealed class SAM_SyncPlus : SAM_Reborn
 		StatusList();
 		var encounterTime = EncounterTime;
 		var buffsVersion = PartyBuffsVersion;
+		var targetId = SchedulerTarget?.GameObjectId ?? 0;
 		if (encounterTime == _lastPartyBuffScanAt
 			&& InCombat == _lastPartyBuffScanInCombat
-			&& buffsVersion == _lastPartyBuffScanVersion)
+			&& buffsVersion == _lastPartyBuffScanVersion
+			&& targetId == _lastPartyBuffScanTarget)
 		{
 			return;
 		}
@@ -591,6 +639,7 @@ public sealed class SAM_SyncPlus : SAM_Reborn
 		_lastPartyBuffScanAt = encounterTime;
 		_lastPartyBuffScanInCombat = InCombat;
 		_lastPartyBuffScanVersion = buffsVersion;
+		_lastPartyBuffScanTarget = targetId;
 		var anchorJob = AnchorJob == SAMSyncPlusAnchorJob.Automatic ? null : AnchorJob.ToString();
 		var anchorJobActive = false;
 		var active = 0;
@@ -605,18 +654,23 @@ public sealed class SAM_SyncPlus : SAM_Reborn
 		for (var index = 0; index < Buffs.Count; index++)
 		{
 			var buff = Buffs[index];
-			var isActive = IsPartyBuffActive(buff);
-			if (InCombat && isActive) _ = _observedPartyBuffs.Add(buff);
+			var anchorActive = IsPartyBuffActive(buff);
+			var isActive = buff.Type == StatusType.Buff ? anchorActive
+				: SchedulerTarget?.HasStatus(false, buff.Ids) == true;
+			if (InCombat && anchorActive) _ = _observedPartyBuffs.Add(buff);
 			var shouldExpect = SAMSyncPlusPolicy.ShouldExpectPartyBuff(
 				encounterTime, _observedPartyBuffs.Contains(buff));
 			if (shouldExpect) names.Add($"{buff.JobAbbr} {buff.Name}");
 
 			if (shouldExpect) expectedJobs.Add(buff.JobAbbr);
-			if (isActive)
+			if (anchorActive)
 			{
 				activeJobs.Add(buff.JobAbbr);
 				anchorJobActive |= anchorJob is not null
 					&& string.Equals(buff.JobAbbr, anchorJob, StringComparison.OrdinalIgnoreCase);
+			}
+			if (isActive)
+			{
 				shortestActiveRemaining = Math.Min(shortestActiveRemaining, PartyBuffRemaining(buff));
 			}
 
@@ -670,13 +724,13 @@ public sealed class SAM_SyncPlus : SAM_Reborn
 			? Player != null && StatusHelper.PlayerHasStatus(false, buff.Ids)
 			: FindDebuffCarrier(buff) != null;
 
-	private static float PartyBuffRemaining(StatusInfo buff)
+	private float PartyBuffRemaining(StatusInfo buff)
 	{
 		if (buff.Type == StatusType.Buff)
 		{
 			return Player == null ? 0f : StatusHelper.PlayerStatusTime(false, buff.Ids);
 		}
-		return FindDebuffCarrier(buff)?.StatusTime(false, buff.Ids) ?? 0f;
+		return SchedulerTarget?.StatusTime(false, buff.Ids) ?? 0f;
 	}
 
 	private bool IsAnchorWorthy()

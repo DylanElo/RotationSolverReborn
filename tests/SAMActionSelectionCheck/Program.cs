@@ -1,0 +1,22 @@
+using System.Reflection;
+using System.Runtime.Loader;
+using System.Text.RegularExpressions;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+var root=Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,"../../../../../"));
+var source=File.ReadAllText(Path.Combine(root,"RotationSolver/RebornRotations/Melee/SAM_SyncPlus.cs"));
+var tree=CSharpSyntaxTree.ParseText(source).GetRoot();
+var cls=tree.DescendantNodes().OfType<ClassDeclarationSyntax>().First();
+var names=new[]{"ShouldCommitPersonalBurst","ShouldHoldFlexibleResources","SchedulerTarget","GeneralGCD","CanUseReadyAction","AllowHiganbana","AllowIaijutsu","AllowOgiNamikiri","ShouldSpendPayload","ShouldDumpKenkiBeforeDowntime","CycleState","DamageBuffCovers","TargetDying","TargetEndsBeforeBurstPayload","IsCurrentTargetBoss","UpdateExpectedPartyBuffs","FindDebuffCarrier","IsPartyBuffActive","PartyBuffRemaining","Decision","EvaluateBurstDecision","CandidateAllowsBurst","TryUseHiganbana"};
+var members=string.Join("\n",cls.Members.Where(m=>m is MethodDeclarationSyntax d&&names.Contains(d.Identifier.Text)||m is PropertyDeclarationSyntax pr&&names.Contains(pr.Identifier.Text)));
+var types=string.Join("\n",tree.DescendantNodes().OfType<MemberDeclarationSyntax>().Where(m=>m is TypeDeclarationSyntax t&&t.Identifier.Text.StartsWith("SAMSyncPlus")||m is EnumDeclarationSyntax e&&e.Identifier.Text.StartsWith("SAMSyncPlus")));
+var cycle=File.ReadAllText(Path.Combine(root,"RotationSolver/RebornRotations/Melee/SAMSyncCycle.cs")).Replace("namespace RotationSolver.RebornRotations.Melee;","");
+var actions=Regex.Matches(members,@"\b\w+PvE\b").Select(m=>m.Value).Distinct().ToArray();
+var statuses=Regex.Matches(members,@"StatusID\.(\w+)").Select(m=>m.Groups[1].Value).Append("Debuff").Append("Buff").Distinct();
+var boundary=File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"Boundary.cs.txt")).Replace("// ACTIONS",string.Join('\n',actions.Select(a=>$"public FakeAction {a}=new(ActionID.{a});")));
+var assembled="using System;using System.Linq;using System.Collections.Generic;using System.ComponentModel;enum ActionID{None,"+string.Join(',',actions)+"}enum StatusID{"+string.Join(',',statuses)+"}"+boundary+"class Sync:Boundary{"+members+"}"+types+cycle+File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"Scenarios.cs.txt"));
+var compilation=CSharpCompilation.Create("SamSelection",[CSharpSyntaxTree.ParseText(assembled)],((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator).Select(p=>MetadataReference.CreateFromFile(p)),new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+using var stream=new MemoryStream();var result=compilation.Emit(stream);
+if(!result.Success){foreach(var d in result.Diagnostics.Where(d=>d.Severity==DiagnosticSeverity.Error))Console.WriteLine(d);File.WriteAllText(Path.Combine(Path.GetTempPath(),"sam-selection-generated.cs"),assembled);return 2;}
+stream.Position=0;var assembly=AssemblyLoadContext.Default.LoadFromStream(stream);return (int)assembly.GetType("Scenarios")!.GetMethod("Run")!.Invoke(null,null)!;

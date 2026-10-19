@@ -36,7 +36,10 @@ Check(Select(terminal,true,true,false,false,false,false,false)==SAMCycleGcd.Ogi,
 Check(Select(terminal with { Tendo=true },true,true,false,false,false,false,false)==SAMCycleGcd.Ogi,"ending Ogi does not wait for another Tendo setup");
 Check(Select(terminal,true,false,false,false,false,false,false)==SAMCycleGcd.Combo,"no terminal DoT even when Ogi unavailable");
 Check(Select(terminal with { KaeshiRemaining=2 },true,true,false,false,false,true,false)==SAMCycleGcd.Kaeshi,"earlier Kaeshi deadline survives terminal Ogi priority");
-Check(Calls(rotation.GetMethod("GeneralGCD",BindingFlags.Instance|BindingFlags.NonPublic)!).Any(m=>m.Name=="get_AllowHiganbana"),"cycle path enforces terminal DoT gate");
+Check(Calls(rotation.GetMethod("GeneralGCD",BindingFlags.Instance|BindingFlags.NonPublic)!).Any(m=>m.DeclaringType==rotation&&m.Name=="TryUseHiganbana")
+    && Calls(rotation.GetMethod("TryUseHiganbana",BindingFlags.Instance|BindingFlags.NonPublic)!).Any(m=>m.DeclaringType==rotation&&m.Name=="CandidateAllowsBurst")
+    && rotation.GetMethods(BindingFlags.Instance|BindingFlags.NonPublic).Where(m=>m.Name.StartsWith("<TryUseHiganbana>b__"))
+        .Any(m=>Calls(m).Any(c=>c.Name=="get_AllowHiganbana")),"cycle path enforces candidate-scoped terminal DoT gate");
 Check(Calls(rotation.BaseType!.GetMethod("GeneralGCD",BindingFlags.Instance|BindingFlags.NonPublic)!).Any(m=>m.Name=="get_AllowHiganbana"),"inherited synced/AoE path enforces terminal DoT gate");
 Check(Meikyo(basic with { Sen=0, Dot=0, Opener=true }), "second opener Meikyo before DoT");
 Check(Select(basic with { Meikyo=true, Dot=0 },true,false,false,false,false,false,false)==SAMCycleGcd.Higanbana,"Higanbana during Meikyo");
