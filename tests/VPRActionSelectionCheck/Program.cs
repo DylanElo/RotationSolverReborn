@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using System.Runtime.Loader;
 using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
@@ -6,6 +6,8 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../"));
+if (!SerpentReadinessCheck.Run(root)) return 1;
+if (args.Contains("--serpent-readiness-only")) return 0;
 var sourceIndex = Array.IndexOf(args, "--source-directory");
 if (sourceIndex >= 0 && sourceIndex + 1 >= args.Length) throw new ArgumentException("--source-directory requires a directory containing VPR_Reborn.cs and VPR_SyncPlus.cs");
 var sourceDirectory = sourceIndex >= 0 ? Path.GetFullPath(args[sourceIndex + 1]) : args.Contains("--before") ? Path.Combine(root, "artifacts/elite-intent-20261017/before") : null;
@@ -17,13 +19,13 @@ string Members(string file, params string[] names)
     return string.Join("\n", names.Select(name => {
         var member = syntax.DescendantNodes().OfType<ClassDeclarationSyntax>().First().Members
             .SingleOrDefault(m => m is MethodDeclarationSyntax d && d.Identifier.Text == name || m is PropertyDeclarationSyntax p && p.Identifier.Text == name);
-        return member?.ToString() ?? (sourceDirectory != null && new[] { "SpendFuryBeforeFreeReawaken", "TryUseReawaken", "TryUseUncoiledFury", "CandidateAllowsBurst", "EvaluateBurstDecision", "ShouldUseSelectedBurstMedicine" }.Contains(name) ? "" : throw new Exception("Missing production member " + name));
+        return member?.ToString() ?? (sourceDirectory != null && new[] { "SpendFuryBeforeFreeReawaken", "TryUseReawaken", "TryUseUncoiledFury", "CandidateAllowsBurst", "EvaluateBurstDecision", "BuildSnapshot", "ShouldUseSelectedBurstMedicine" }.Contains(name) ? "" : throw new Exception("Missing production member " + name));
     }));
 }
 const string dir = "RotationSolver/RebornRotations/Melee/";
 foreach (var file in new[] { "VPR_Reborn.cs", "VPR_SyncPlus.cs" }) Console.WriteLine(file + " SHA256 " + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(SourcePath(dir + file)))));
-var production = "class Reborn : Boundary {" + Members(dir + "VPR_Reborn.cs", "GeneralGCD", "AllowReawaken", "AllowViceCombo", "AllowUncoiledFury", "PreferUncoiledFury", "SpendFuryBeforeFreeReawaken", "TryUseReawaken", "TryUseUncoiledFury") + "}\n"
-    + "class Sync : Reborn {" + Members(dir + "VPR_SyncPlus.cs", "AllowReawaken", "ShouldUseReawaken", "TargetDying", "TargetEndsBeforeBurstPayload", "IsCurrentTargetBoss", "PlannedBurstWindow", "AllowViceCombo", "AllowUncoiledFury", "PreferUncoiledFury", "SpendFuryBeforeFreeReawaken", "UpdateExpectedPartyBuffs", "FindDebuffCarrier", "IsPartyBuffActive", "PartyBuffRemaining", "IsAnchorWorthy", "TryUseReawaken", "TryUseUncoiledFury", "CandidateAllowsBurst", "EvaluateBurstDecision", "Decision", "ShouldCommitPersonalBurst", "ShouldHoldFlexibleResources", "GeneralGCD", "UpdateBurstTracker", "ResetPartyBurstAnchor", "SecondsInPartyBurst", "BurstHeldFor", "EmergencyAbility", "ShouldUseSelectedBurstMedicine", "AllowBurstMedicine") + "}\n";
+var production = "class Reborn : Boundary {" + Members(dir + "VPR_Reborn.cs", "GeneralGCD", "AttackAbility", "TryUseViceCombo", "AllowSerpentsIre", "AllowReawaken", "AllowViceCombo", "AllowUncoiledFury", "PreferUncoiledFury", "SpendFuryBeforeFreeReawaken", "TryUseReawaken", "TryUseUncoiledFury") + "}\n"
+    + "class Sync : Reborn {" + Members(dir + "VPR_SyncPlus.cs", "AllowReawaken", "PackageRelease", "TimingChoice", "CalculateTimingChoice", "ReawakenAdmission", "ReawakenPayload", "ReawakenCycle", "CandidateFinalKillIn", "LearnedBurstWindows", "NormalComboRemaining", "NormalComboPending", "EarnedIreCoilLoss", "EarnedIreCoilLossAt", "EarnedViceCoilLoss", "PrioritizeEarnedGenerator", "ReserveWeaveForIre", "ShouldDelayIreToken", "AllowSerpentsIre", "ShouldUseSerpentsIre", "AttackAbility", "TryUseViceCombo", "ShouldUseReawaken", "TargetDying", "TargetEndsBeforeBurstPayload", "IsCurrentTargetBoss", "PlannedBurstWindow", "AllowViceCombo", "AllowUncoiledFury", "PreferUncoiledFury", "SpendFuryBeforeFreeReawaken", "UpdateExpectedPartyBuffs", "FindDebuffCarrier", "IsPartyBuffActive", "PartyBuffRemaining", "IsAnchorWorthy", "TryUseReawaken", "TryUseUncoiledFury", "CandidateAllowsBurst", "EvaluateBurstDecision", "BuildSnapshot", "Decision", "ShouldCommitPersonalBurst", "ShouldHoldFlexibleResources", "GeneralGCD", "UpdateBurstTracker", "ResetPartyBurstAnchor", "SecondsInPartyBurst", "BurstHeldFor", "EmergencyAbility", "ShouldUseSelectedBurstMedicine", "AllowBurstMedicine") + "}\n";
 var tree = CSharpSyntaxTree.ParseText(Read(dir + "VPR_SyncPlus.cs")).GetRoot();
 production += string.Join('\n', tree.DescendantNodes().OfType<MemberDeclarationSyntax>().Where(m => m is TypeDeclarationSyntax t && t.Identifier.Text.StartsWith("VPRSyncPlus") || m is EnumDeclarationSyntax e && e.Identifier.Text.StartsWith("VPRSyncPlus")).Select(m => m.ToString()));
 var actions = Regex.Matches(production, @"\b\w+PvE\b").Select(m => m.Value).Distinct().ToArray();

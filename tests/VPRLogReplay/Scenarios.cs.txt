@@ -1,0 +1,109 @@
+static class Scenarios {
+ record Window(float start,float end,string name,string job,int target);
+ record Target(int id,float first,float end,bool finalBoss,bool boss,uint baseId,string name);
+ record Switch(float t,int target);
+ record Targetability(float t,int target,bool on);
+ record HpDying(float t,int target,bool dying);
+ record Cast(float t,string name);
+ record Fixture(string label,uint territoryId,float duration,int actor,int events,int pages,Dictionary<string,float> timing,Target[] targets,Switch[] switches,Targetability[] targetability,Window[] windows,Cast[] reference,HpDying[] hpDying);
+ record Row(float t,string name,int gauge,int coils,bool free,int buffs,bool medicated,string reason,int target,bool hunter,string timing,float finalKillIn,uint territoryId,uint baseId,float candidateFinalKillIn);
+ const float ExecutionLock=.65f, PollStep=.02f;
+ static bool FitsWeave(float now,float nextGcd,float currentGcdTotal)=>nextGcd-now>Math.Max(.5f,currentGcdTotal*.25f);
+ static float RetryWeaveAt(float now)=>now+PollStep;
+ static bool HasWeaveBudget(int confirmed)=>confirmed<2;
+ static void CheckLateWeavePolling(){
+  bool Select(float ready,float next){for(float at=.72f;FitsWeave(at,next,2.1f);at=RetryWeaveAt(at))if(at>=ready)return true;return false;}
+  if(!HasWeaveBudget(0)||!HasWeaveBudget(1)||HasWeaveBudget(2))throw new Exception("Shared two-weave confirmed-effect budget failed");
+  if(!Select(.80f,1.5f))throw new Exception("Late-ready ability was skipped after an empty weave poll");
+  if(Select(1.0f,1.5f)||FitsWeave(0,.525f,2.1f))throw new Exception("Ability admitted inside native action-ahead/command cutoff");
+ }
+ public static int Run(string[] args){
+  CheckLateWeavePolling();
+  string Arg(string key,string fallback){var i=Array.IndexOf(args,key);return i<0?fallback:args[i+1];}
+  var fixtures=Arg("--fixtures","");var output=Arg("--output","");Directory.CreateDirectory(output);
+  var summaries=new List<object>();
+  foreach(var file in Directory.GetFiles(fixtures,"*.json").OrderBy(x=>x)){
+   var f=JsonSerializer.Deserialize<Fixture>(File.ReadAllText(file))!;
+   var engine=new Engine(f);engine.Run();
+   var counts=engine.Rows.GroupBy(x=>x.name).ToDictionary(g=>g.Key,g=>g.Count());
+   var reference=f.reference.GroupBy(x=>x.name).ToDictionary(g=>g.Key,g=>g.Count());
+   var packageStats=new{freeReawakens=engine.Rows.Count(r=>r.name=="Reawaken"&&r.free),paidReawakens=engine.Rows.Count(r=>r.name=="Reawaken"&&!r.free),reawakenStartsUnderPotion=engine.Rows.Count(r=>r.name=="Reawaken"&&r.medicated),ouroborosUnderPotion=engine.Rows.Count(r=>r.name=="Ouroboros"&&r.medicated),ouroborosUnderPartyBuff=engine.Rows.Count(r=>r.name=="Ouroboros"&&r.buffs>0),furyUnderPotion=engine.Rows.Count(r=>r.name=="Uncoiled Fury"&&r.medicated),furyUnderPartyBuff=engine.Rows.Count(r=>r.name=="Uncoiled Fury"&&r.buffs>0)};
+   var summary=new{packageStats,f.label,f.duration,f.events,f.pages,counts,reference,gauge=engine.Gauge,coils=engine.Coils,free=engine.Free,overcapGauge=engine.GaugeLost,overcapCoils=engine.CoilsLost,unfinished=engine.Gen>0,engine.CombosExpired,engine.TokenExpired,engine.FollowupsExpired,engine.DreadExpired,engine.GenerationExpired,engine.GcdIdleSeconds,engine.Illegal,model="Own state and production GeneralGCD/EmergencyAbility/AttackAbility/hooks/scheduler; observed party buff, potion, targetability and target death windows. No damage/rDPS model; known future boss boundaries emulate timeline support."};
+   summaries.Add(summary);File.WriteAllText(Path.Combine(output,f.label+"-timeline.json"),JsonSerializer.Serialize(engine.Rows,new JsonSerializerOptions{WriteIndented=true}));
+   Console.WriteLine(f.label+" RA/Ouro/Fury/Ire/Vice "+string.Join("/",new[]{"Reawaken","Ouroboros","Uncoiled Fury","Serpent's Ire","Vicewinder"}.Select(n=>counts.GetValueOrDefault(n)))+" reference "+string.Join("/",new[]{"Reawaken","Ouroboros","Uncoiled Fury","Serpent's Ire","Vicewinder"}.Select(n=>reference.GetValueOrDefault(n)))+" illegal="+engine.Illegal);
+   if(engine.GcdIdleSeconds>2)throw new Exception("Unexplained active-target GCD stall "+f.label+" "+engine.GcdIdleSeconds);
+   var sequence=false;foreach(var row in engine.Rows){if(row.name=="Reawaken"){if(sequence)throw new Exception("Reawaken restarted before Ouroboros "+f.label);sequence=true;}if(row.name=="Ouroboros"){if(!sequence)throw new Exception("Ouroboros without Reawaken");sequence=false;}}if(sequence)throw new Exception("Unfinished Reawaken sequence "+f.label);
+   if(engine.Illegal!=0)throw new Exception("Illegal modeled cast "+f.label);
+  }
+  File.WriteAllText(Path.Combine(output,"summary.json"),JsonSerializer.Serialize(summaries,new JsonSerializerOptions{WriteIndented=true}));return 0;
+ }
+ class Engine {
+  readonly Fixture f;readonly Sync s=new();readonly Dictionary<int,IBattleChara> targets=new();readonly List<FakeAction> actions;readonly Queue<ActionID> pending=new();readonly List<float> recharge=new();
+  public List<Row> Rows=new();public int Gauge,Coils,Gen,GaugeLost,CoilsLost,CombosExpired,TokenExpired,FollowupsExpired,DreadExpired,GenerationExpired,Illegal;public bool Free;public float GcdIdleSeconds;
+  float dreadEnd,generationEnd,pendingDuration=30;float now,nextGcd,currentGcdTotal,ireReady,ireLast=-120,tokenEnd,hunterEnd,swiftEnd,comboEnd,venomEnd,lastAction=-10,nextWeave;int combo,weavesUsed;bool hunterCoil,swiftCoil;ActionID finisher=ActionID.HindsbaneFangPvE;
+  public Engine(Fixture fixture){f=fixture;DataCenter.TerritoryID=f.territoryId;actions=typeof(Boundary).GetFields().Where(x=>x.FieldType==typeof(FakeAction)).Select(x=>(FakeAction)x.GetValue(s)!).ToList();foreach(var t in f.targets)targets[t.id]=new(){GameObjectId=(ulong)t.id,Boss=t.boss,BaseId=t.baseId};DataCenter.AllHostileTargets=targets.Values.ToList();Boundary.Player=new(){GameObjectId=(ulong)f.actor};s.ReplayIsInFru=f.label=="fru";s.UseSecondBurstMedicine=false;s.BurstMed=false;s.LogBurstReport=false;s.SerpentOffering=0;s.RattlingCoilStacks=0;s.BasicGcd=f.timing.GetValueOrDefault("Steel Fangs",2.1f);s.ReawakenDelayTimer=75;s.MaxRattling=3;s.TimelineAvailable=true;s.SynchronizePartyBurst=true;s.TimelineEnabled=true;s.LookAheadSeconds=8;s.MaximumBurstHoldSeconds=30;s.OverlapWaitSeconds=6;
+   foreach(var group in f.windows.Where(w=>w.name!="Medicated").GroupBy(w=>w.name)){var w=group.First();s.Buffs.Add(new(){Name=w.name,JobAbbr=w.job,Type=w.target==0?StatusType.Buff:StatusType.Debuff,Ids=[Enum.Parse<StatusID>("External"+s.Buffs.Count)]});}
+  }
+  public void Run(){for(now=0;now<f.duration;now+=.02f){Update();var predicted=s.GCD();
+    if(now>=nextGcd&&Boundary.CurrentTarget!=null){if(predicted!=null){CastAction(predicted.ID,false);nextGcd=now+(currentGcdTotal=Duration(Name(predicted.ID)));nextWeave=now+.72f;}else GcdIdleSeconds+=.02f;}
+    if(HasWeaveBudget(weavesUsed)&&now>=nextWeave&&(FitsWeave(now,nextGcd,currentGcdTotal)||pending.Count>0&&now>=nextGcd)&&Boundary.CurrentTarget!=null){Update();predicted=s.GCD();var next=predicted??s.Potion;var a=s.Weave(next)??s.Attack(next);if(a!=null){CastAction(a.ID,true);nextWeave=now+.72f;nextGcd=Math.Max(nextGcd,now+ExecutionLock);}else nextWeave=RetryWeaveAt(now);}
+   }}
+  void Update(){
+   if(Free&&now>=tokenEnd){Free=false;TokenExpired++;}if(combo>0&&now>=comboEnd){combo=0;s.LastCombo=ActionID.None;CombosExpired++;}if(pending.Count>0&&now-lastAction>pendingDuration){FollowupsExpired+=pending.Count;pending.Clear();}if((hunterCoil||swiftCoil)&&now>dreadEnd){hunterCoil=swiftCoil=false;DreadExpired++;}if(Gen>0&&now>generationEnd){Gen=0;GenerationExpired++;}while(recharge.Count>0&&recharge[0]<=now){recharge.RemoveAt(0);}
+   var selected=f.switches.LastOrDefault(x=>x.t<=now);var target=selected==null?null:targets[selected.target];var targetMeta=target==null?null:f.targets.First(x=>(ulong)x.id==target.GameObjectId);
+   if(target!=null){var change=f.targetability.LastOrDefault(x=>x.target==(int)target.GameObjectId&&x.t<=now);if((change!=null&&!change.on)||now>targetMeta!.end)target=null;}
+   Boundary.CurrentTarget=Boundary.HostileTarget=target;
+   foreach(var b in targets.Values){var meta=f.targets.First(x=>(ulong)x.id==b.GameObjectId);b.TTK=Math.Max(0,meta.end-now);b.Dying=b.TTK<=10f||f.hpDying.LastOrDefault(x=>(ulong)x.target==b.GameObjectId&&x.t<=now)?.dying==true;b.Statuses.Clear();}
+   StatusHelper.Statuses.Clear();for(int i=0;i<s.Buffs.Count;i++){var b=s.Buffs[i];foreach(var w in f.windows.Where(x=>x.name==b.Name&&x.start<=now&&x.end>now)){if(w.target==0)StatusHelper.Statuses[b.Ids[0]]=w.end-now;else targets[w.target].Statuses[b.Ids[0]]=w.end-now;}}
+   foreach(var w in f.windows.Where(x=>x.name=="Medicated"&&x.start<=now&&x.end>now))StatusHelper.Statuses[StatusID.Medicated]=w.end-now;
+   if(Free)StatusHelper.Statuses[StatusID.ReadyToReawaken]=tokenEnd-now;
+   if(combo==2&&venomEnd>now)StatusHelper.Statuses[StatusID.HindsbaneVenom]=venomEnd-now;
+   var downtime=f.targetability.Where(x=>!x.on&&target!=null&&x.target==(int)target.GameObjectId&&x.t>now).Select(x=>x.t-now).DefaultIfEmpty(float.MaxValue).Min();
+   s.WeaponRemain=Math.Max(0,nextGcd-now);s.EncounterTime=now;s.PartyBuffsVersion++;s._decisionComputedAt=float.MinValue;s.Downtime=Math.Min(downtime,target?.TTK??float.MaxValue);s.ReplayBmrDowntime=downtime;s.BMRDowntimeEndIn=float.MaxValue;s.BMRVulnerableIn=float.MaxValue;s.BMRVulnerableEndIn=float.MaxValue;
+   s.HasReadyToReawaken=Free;s.SerpentOffering=Gauge;s.RattlingCoilStacks=Coils;s.AnguineTributeStacks=Gen;s.HasReawakenedActive=Gen>0;s.LiveComboTime=combo>0?comboEnd-now:30;s.SwiftTime=Math.Max(0,swiftEnd-now);s.HuntersTime=Math.Max(0,hunterEnd-now);s.IsSwift=swiftEnd>now;s.IsHunter=hunterEnd>now;s.HasHunterAndSwift=s.IsSwift&&s.IsHunter;s.WillSwiftEnd=s.SwiftTime<=5;s.WillHunterEnd=s.HuntersTime<=5;s.HunterOrSwiftEndsFirst=hunterEnd<swiftEnd?"Hunter":"Swift";s.DreadActive=hunterCoil&&swiftCoil;s.NoAbilityReady=pending.Count==0;s.TimeSinceLastAction=TimeSpan.FromSeconds(now-lastAction);s.HasHunterVenom=pending.Count>0&&pending.Peek()==ActionID.TwinfangBitePvE;s.HasSwiftVenom=pending.Count>0&&pending.Peek()==ActionID.TwinbloodBitePvE;s.HasPoisedFang=pending.Count>0&&pending.Peek()==ActionID.UncoiledTwinfangPvE;s.HasPoisedBlood=pending.Count>0&&pending.Peek()==ActionID.UncoiledTwinbloodPvE;s.HasHostilesInRange=true;
+   s.HasHindstung=false;s.HasHindsbane=combo==2&&finisher==ActionID.HindsbaneFangPvE;s.HasFlankstung=combo==2&&finisher==ActionID.FlankstingStrikePvE;s.HasHind=combo==2&&finisher==ActionID.HindsbaneFangPvE;s.HasFlank=false;
+   s.SerpentsIrePvE.Cooldown.CurrentCharges=now>=ireReady?1:0;s.SerpentsIrePvE.Cooldown.Elapsed=now-ireLast;s.SerpentsIrePvE.Cooldown.RecastTimeRemainOneCharge=Math.Max(0,ireReady-now);
+   foreach(var a in new[]{s.VicewinderPvE,s.VicepitPvE}){a.Cooldown.CurrentCharges=2-recharge.Count;a.Cooldown.RecastTimeRemainOneCharge=recharge.Count>0?recharge[0]-now:0;}
+   s.ReplayDreadPending=hunterCoil||swiftCoil;
+   foreach(var a in actions){a.Cooldown.RecastTimeOneChargeRaw=a.ID==ActionID.SerpentsIrePvE?120:a.ID==ActionID.VicewinderPvE?40:Duration(Name(a.ID));a.Available=target!=null&&Ready(a.ID);a.NativeCheck=()=>true;a.Resolve=()=>Boundary.CurrentTarget;}
+  }
+  bool Ready(ActionID id){var n=Name(id);if(pending.Count>0&&pending.Peek()==id)return true;if(n=="Serpent's Ire")return now>=ireReady&&s.ReplaySerpentsIrePvECheck()&&!Free;
+   if(n=="Reawaken")return Gen==0&&!hunterCoil&&!swiftCoil&&(Free||Gauge>=50);
+   if(n=="Uncoiled Fury")return Coils>0&&pending.Count==0;
+   if(n=="Ouroboros")return Gen==1;
+   if(n=="First Generation")return Gen==5;if(n=="Second Generation")return Gen==4;if(n=="Third Generation")return Gen==3;if(n=="Fourth Generation")return Gen==2;
+   if(n=="Vicewinder")return s.ReplayVicewinderPvECheck();
+   if(n=="Hunter's Coil")return hunterCoil&&Gen==0;if(n=="Swiftskin's Coil")return swiftCoil&&Gen==0;
+   if(Gen>0||hunterCoil||swiftCoil)return false;
+   if(n=="Steel Fangs"||n=="Reaving Fangs")return combo==0;
+   if(n=="Hunter's Sting"||n=="Swiftskin's Sting")return combo==1;
+   return combo==2&&id==finisher;
+  }
+  float CandidateFinal(){var value=s.GetType().GetProperty("CandidateFinalKillIn",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)?.GetValue(s);return value is float t && float.IsFinite(t)?t:-1;}
+  void CastAction(ActionID id,bool weave){if(!Ready(id)){Illegal++;return;}if(weave)weavesUsed++;else weavesUsed=0;var name=Name(id);Rows.Add(new((float)Math.Round(now,3),name,Gauge,Coils,Free,s._activePartyBuffs,StatusHelper.PlayerHasStatus(true,StatusID.Medicated),s.ReadDecision().Reason,(int)(Boundary.CurrentTarget?.GameObjectId??0),hunterEnd>now,s.GetType().GetProperty("TimingChoice",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic)?.GetValue(s)?.ToString()??"legacy",float.IsNaN(s.FinalKillIn)?-1:s.FinalKillIn,DataCenter.TerritoryID,Boundary.CurrentTarget?.BaseId??0,CandidateFinal()));lastAction=now;
+   if(weave&&pending.Count>0&&pending.Peek()==id){pending.Dequeue();return;}
+   switch(name){
+    case "Serpent's Ire":ireLast=now;ireReady=now+120;Free=true;tokenEnd=now+30;GainCoil();break;
+    case "Reawaken":if(Free)Free=false;else Gauge-=50;Gen=5;generationEnd=now+30;break;
+    case "First Generation":Gen--;pending.Enqueue(ActionID.FirstLegacyPvE);break;
+    case "Second Generation":Gen--;pending.Enqueue(ActionID.SecondLegacyPvE);break;
+    case "Third Generation":Gen--;pending.Enqueue(ActionID.ThirdLegacyPvE);break;
+    case "Fourth Generation":Gen--;pending.Enqueue(ActionID.FourthLegacyPvE);break;
+    case "Ouroboros":Gen=0;break;
+    case "Uncoiled Fury":Coils--;pendingDuration=60;pending.Enqueue(ActionID.UncoiledTwinfangPvE);pending.Enqueue(ActionID.UncoiledTwinbloodPvE);break;
+    case "Vicewinder":recharge.Add((recharge.Count==0?now:recharge.Last())+40);hunterCoil=swiftCoil=true;dreadEnd=now+30;GainCoil();break;
+    case "Hunter's Coil":hunterCoil=false;pendingDuration=30;hunterEnd=Math.Min(now+60,Math.Max(now,hunterEnd)+40);GainGauge(5);pending.Enqueue(ActionID.TwinfangBitePvE);pending.Enqueue(ActionID.TwinbloodBitePvE);break;
+    case "Swiftskin's Coil":swiftCoil=false;pendingDuration=30;swiftEnd=Math.Min(now+60,Math.Max(now,swiftEnd)+40);GainGauge(5);pending.Enqueue(ActionID.TwinbloodBitePvE);pending.Enqueue(ActionID.TwinfangBitePvE);break;
+    case "Steel Fangs":case "Reaving Fangs":combo=1;comboEnd=now+30;s.LastCombo=id;break;
+    case "Hunter's Sting":hunterEnd=Math.Min(now+60,Math.Max(now,hunterEnd)+40);combo=2;comboEnd=now+30;venomEnd=now+60;finisher=ActionID.FlankstingStrikePvE;s.LastCombo=id;break;
+    case "Swiftskin's Sting":swiftEnd=Math.Min(now+60,Math.Max(now,swiftEnd)+40);combo=2;comboEnd=now+30;venomEnd=now+60;finisher=ActionID.HindsbaneFangPvE;s.LastCombo=id;break;
+    case "Flanksting Strike":case "Flanksbane Fang":case "Hindsting Strike":case "Hindsbane Fang":combo=0;GainGauge(10);s.LastCombo=id;pending.Enqueue(ActionID.DeathRattlePvE);break;
+   }
+   s.LastGcd=id;Check();
+  }
+  void Check(){if(Gauge<0||Gauge>100||Coils<0||Coils>3||Gen<0||Gen>5)throw new Exception("Resource invariant "+f.label+" "+now);}
+  void GainGauge(int n){GaugeLost+=Math.Max(0,Gauge+n-100);Gauge=Math.Min(100,Gauge+n);}void GainCoil(){CoilsLost+=Math.Max(0,Coils+1-3);Coils=Math.Min(3,Coils+1);}
+  float Duration(string name)=>f.timing.GetValueOrDefault(name,name.Contains("Generation")?1.69f:name=="Reawaken"?1.83f:name=="Uncoiled Fury"?2.94f:name.Contains("Coil")||name=="Vicewinder"||name=="Ouroboros"?2.54f:s.BasicGcd);
+  static string Name(ActionID id)=>id switch{ActionID.SerpentsIrePvE=>"Serpent's Ire",ActionID.HuntersCoilPvE=>"Hunter's Coil",ActionID.SwiftskinsCoilPvE=>"Swiftskin's Coil",ActionID.HuntersStingPvE=>"Hunter's Sting",ActionID.SwiftskinsStingPvE=>"Swiftskin's Sting",_=>System.Text.RegularExpressions.Regex.Replace(id.ToString().Replace("PvE",""),"([a-z])([A-Z])","$1 $2")};
+ }
+}

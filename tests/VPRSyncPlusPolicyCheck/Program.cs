@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Reflection.Emit;
 using System.Runtime.Loader;
@@ -234,6 +234,25 @@ Check("Fury spends inside live buffs", true, fury.Invoke(null, [true, true, 2, 3
 
 // Sugar Riot: 80 gauge + free Reawaken, then staggered Embolden/Searing Light.
 var burstWindow = Method(policy, "PlannedBurstWindow");
+Check("third affordable sequence does not force the full pool into the current combo window", 21.5f,
+    burstWindow.Invoke(null, [true, 100, 9.5f, 2.5f]));
+var releasePotion = Method(policy, "ShouldReleasePotion");
+Check("Light paid burst fits nonoverlapping potion window", true,
+    releasePotion.Invoke(null, [false,50,44f,16.75f,1000f,1000f,9.5f]));
+Check("no potion keeps raid pooling", false,
+    releasePotion.Invoke(null, [false,50,44f,0f,1000f,1000f,9.5f]));
+Check("short potion cannot justify incomplete payload", false,
+    releasePotion.Invoke(null, [false,50,44f,4f,1000f,1000f,9.5f]));
+Check("overlapping potion and upcoming raid window retains pooling", false,
+    releasePotion.Invoke(null, [false,50,8f,20f,1000f,1000f,9.5f]));
+Check("free token cannot claim potion release of paid gauge", false,
+    releasePotion.Invoke(null, [true,100,44f,20f,1000f,1000f,9.5f]));
+Check("unknown future raid window preserves existing decision", false,
+    releasePotion.Invoke(null, [false,50,null,30f,1000f,1000f,9.5f]));
+Check("imminent downtime vetoes potion release", false,
+    releasePotion.Invoke(null, [false,50,44f,30f,1000f,5f,9.5f]));
+Check("short target lifetime vetoes potion release", false,
+    releasePotion.Invoke(null, [false,50,44f,30f,5f,1000f,9.5f]));
 var finishCombo = Method(policy, "ShouldFinishNormalCombo");
 var delayVice = Method(policy, "ShouldDelayViceCombo");
 var overlap = Method(policy, "EffectiveOverlapWait");
@@ -280,8 +299,8 @@ Check("slightly late predicted buff still prevents Vice lockout during hold", tr
 	delayVice.Invoke(null, [true, true, false, -1f, 8f, true, true]));
 Check("expired hold releases Vicewinder when predicted buffs never arrived", false,
 	delayVice.Invoke(null, [true, true, false, -31f, 8f, true, false]));
-Check("both ST and AOE Vice entry paths consult the Sync hook", 2,
-	gcdCalls.Count(n => n == "get_AllowViceCombo"));
+Check("both ST and AOE Vice entry paths consult the Sync candidate hook", 4,
+	gcdCalls.Count(n => n == "TryUseViceCombo"));
 foreach (var gateName in new[] { "AllowReawaken", "AllowUncoiledFury", "AllowViceCombo" })
 	Check("combo deadline reaches " + gateName, true,
 		Calls(rotation.GetProperty(gateName, BindingFlags.Instance | BindingFlags.NonPublic)!.GetMethod!)
@@ -313,7 +332,9 @@ Check("fresh venom and combo allow a single detour", false,
 	finishCombo.Invoke(null, [true, deadline.Invoke(null, [28f, 55f]), 9.5f, 2.14f]));
 Check("expired combo cannot deadlock on a remaining venom", false,
 	finishCombo.Invoke(null, [true, deadline.Invoke(null, [0f, 5f]), 9.5f, 2.14f]));
-var finishCalls = Calls(rotation.GetProperty("FinishNormalCombo", BindingFlags.Instance | BindingFlags.NonPublic)!.GetMethod!);
+Check("live combo gate shares the planner's combined deadline", true,
+    Calls(rotation.GetProperty("FinishNormalCombo", BindingFlags.Instance | BindingFlags.NonPublic)!.GetMethod!).Contains("get_NormalComboRemaining"));
+var finishCalls = Calls(rotation.GetProperty("NormalComboRemaining", BindingFlags.Instance | BindingFlags.NonPublic)!.GetMethod!);
 Check("live combo protection reads status duration", true, finishCalls.Contains("PlayerStatusTime"));
 Check("live combo protection uses combined deadline", true, finishCalls.Contains("ComboDeadline"));
 
@@ -346,8 +367,10 @@ Check("live Reawaken gate provides free-token state", true,
 	Calls(rotation.GetProperty("ShouldUseReawaken", BindingFlags.Instance | BindingFlags.NonPublic)!.GetMethod!)
 		.Contains("get_HasReadyToReawaken"));
 Check("live snapshot provides free-token state", true,
-	Calls(rotation.GetMethod("EvaluateBurstDecision", BindingFlags.Instance | BindingFlags.NonPublic)!)
+	Calls(rotation.GetMethod("BuildSnapshot", BindingFlags.Instance | BindingFlags.NonPublic)!)
 		.Contains("get_HasReadyToReawaken"));
+Check("actual scheduler uses the shared baseline snapshot", true,
+    Calls(rotation.GetMethod("EvaluateBurstDecision", BindingFlags.Instance | BindingFlags.NonPublic)!).Contains("BuildSnapshot"));
 
 // Compose the scheduler's release with the real paid-gauge veto.
 var forceProp = decisionType.GetProperty("ForceRelease")!;

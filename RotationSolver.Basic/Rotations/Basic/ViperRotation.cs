@@ -644,7 +644,7 @@ public partial class ViperRotation
 
 	static partial void ModifyVicewinderPvE(ref ActionSetting setting)
 	{
-		setting.ActionCheck = () => VicewinderHasCharges && SerpentOffering <= 90 && RattlingCoilStacks < MaxRattling && AnguineTributeStacks == 0 && NODREAD;
+		setting.ActionCheck = () => VicewinderHasCharges && SerpentOffering <= 90 && AnguineTributeStacks == 0 && NODREAD;
 	}
 
 	static partial void ModifyHuntersCoilPvE(ref ActionSetting setting)
@@ -659,7 +659,7 @@ public partial class ViperRotation
 
 	static partial void ModifyVicepitPvE(ref ActionSetting setting)
 	{
-		setting.ActionCheck = () => VicepitHasCharges && SerpentOffering <= 90 && RattlingCoilStacks < MaxRattling && AnguineTributeStacks == 0 && NODREAD;
+		setting.ActionCheck = () => VicepitHasCharges && SerpentOffering <= 90 && AnguineTributeStacks == 0 && NODREAD;
 		setting.CreateConfig = () => new ActionConfig()
 		{
 			AoeCount = 3,
@@ -752,7 +752,7 @@ public partial class ViperRotation
 
 	static partial void ModifySerpentsIrePvE(ref ActionSetting setting)
 	{
-		setting.ActionCheck = () => RattlingCoilStacks < MaxRattling && InCombat;
+		setting.ActionCheck = () => InCombat;
 		setting.StatusProvide = [StatusID.ReadyToReawaken];
 	}
 

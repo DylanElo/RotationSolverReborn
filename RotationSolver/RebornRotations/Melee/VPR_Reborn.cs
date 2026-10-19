@@ -268,8 +268,8 @@ public class VPR_Reborn : ViperRotation
 	}
 	#endregion
 
-	protected virtual bool AllowSerpentsIre => true;
-	protected virtual bool AllowViceCombo => true;
+	protected virtual bool AllowSerpentsIre => RattlingCoilStacks < MaxRattling;
+	protected virtual bool AllowViceCombo => RattlingCoilStacks < MaxRattling;
 	protected virtual bool AllowReawaken => LiveComboTime > GCDTime(6)
 		&& ((SerpentsIrePvE.EnoughLevel && (!SerpentsIrePvE.Cooldown.ElapsedAfter(ReawakenDelayTimer) || SerpentOffering == 100)) || !SerpentsIrePvE.EnoughLevel)
 		&& SwiftTime > SwiftTimer && HuntersTime > HuntersTimer;
@@ -288,6 +288,12 @@ public class VPR_Reborn : ViperRotation
 	{
 		act = null;
 		return (!preferred || PreferUncoiledFury) && AllowUncoiledFury && UncoiledFuryPvE.CanUse(out act, usedUp: true);
+	}
+
+	protected virtual bool TryUseViceCombo(bool aoe, out IAction? act)
+	{
+		act = null;
+		return AllowViceCombo && (aoe ? VicepitPvE : VicewinderPvE).CanUse(out act, usedUp: true);
 	}
 
 	#region oGCD Logic
@@ -490,16 +496,16 @@ public class VPR_Reborn : ViperRotation
 			}
 		}
 
-		if (AllowViceCombo && LiveComboTime > GCDTime(3) && IsSwift && VicepitPvE.Cooldown.CurrentCharges > 0)
+		if (LiveComboTime > GCDTime(3) && IsSwift && VicepitPvE.Cooldown.CurrentCharges > 0)
 		{
 			if (VicepitPvE.Cooldown.CurrentCharges == 1 && VicepitPvE.Cooldown.RecastTimeRemainOneCharge < 10)
 			{
-				if (VicepitPvE.CanUse(out act, usedUp: true))
+				if (TryUseViceCombo(true, out act))
 				{
 					return true;
 				}
 			}
-			if (VicepitPvE.CanUse(out act, usedUp: true))
+			if (TryUseViceCombo(true, out act))
 			{
 				return true;
 			}
@@ -807,16 +813,16 @@ public class VPR_Reborn : ViperRotation
 			}
 		}
 
-		if (AllowViceCombo && LiveComboTime > GCDTime(3) && IsSwift)
+		if (LiveComboTime > GCDTime(3) && IsSwift)
 		{
 			if (VicewinderPvE.Cooldown.CurrentCharges == 1 && VicewinderPvE.Cooldown.RecastTimeRemainOneCharge < 10)
 			{
-				if (VicewinderPvE.CanUse(out act, usedUp: true))
+				if (TryUseViceCombo(false, out act))
 				{
 					return true;
 				}
 			}
-			if (VicewinderPvE.CanUse(out act, usedUp: true))
+			if (TryUseViceCombo(false, out act))
 			{
 				return true;
 			}

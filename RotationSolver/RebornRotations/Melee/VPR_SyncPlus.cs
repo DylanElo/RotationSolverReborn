@@ -14,7 +14,7 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 {
 	private const float DungeonBossCombatFallback = 90f;
 	private const float PartyBurstCycle = 120f;
-	private const float ReawakenExecutionWindow = 9.5f;
+	private const float ReawakenExecutionWindow = VPRSyncPlusPolicy.MinimumReawakenWindow;
 
 	#region Config
 	[RotationConfig(CombatType.PvE, Name = "Burst strategy",
@@ -35,8 +35,8 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 	[Range(300f, 480f, ConfigUnitType.Seconds, 1f)]
 	[RotationConfig(CombatType.PvE, Name = "Second potion time", Parent = nameof(UseSecondBurstMedicine),
 		Section = "Potions", Order = 220,
-		Tooltip = "Target encounter time for the later potion. The rotation still waits for a committed burst window.")]
-	private float SecondMedicineTime { get; set; } = 360f;
+		Tooltip = "Earliest encounter time for later potions. The default allows cooldown-ready potions from five minutes; the rotation still waits for an executable burst.")]
+	private float SecondMedicineTime { get; set; } = 300f;
 
 	[RotationConfig(CombatType.PvE, Name = "Show advanced settings",
 		Section = "Advanced", Order = 400,
@@ -83,6 +83,7 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 	private bool _anchorWasWorthy;
 	private bool _burstWasReady;
 	private readonly HashSet<StatusInfo> _observedPartyBuffs = [];
+	private readonly Dictionary<StatusInfo, VPRSyncPlusObservedWindow> _learnedBuffWindows = [];
 	private string? _expectedPartyBuffs;
 	private float _lastPartyBuffScanAt = -1f;
 	private bool _lastPartyBuffScanInCombat;
@@ -101,6 +102,10 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 	private int _expectedAnchorJobs;
 	private float _shortestActivePartyBuffRemaining = float.MaxValue;
 	private VPRSyncPlusDecision _decision = VPRSyncPlusDecision.Default;
+	private float _timingComputedAt = float.MinValue;
+	private ulong _timingComputedTarget;
+	private int _timingComputedResources;
+	private VPRSyncPlusTimingChoice _timingChoice;
 	private float _decisionComputedAt = float.MinValue;
 	private bool _decisionComputedInCombat;
 	private ulong _decisionComputedTarget;
@@ -191,9 +196,110 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 	}
 
 	private bool ReawakenReady => HasReadyToReawaken || (SerpentsLineageTrait.EnoughLevel && SerpentOffering >= 50);
-	private float PlannedBurstWindow => VPRSyncPlusPolicy.PlannedBurstWindow(
-		HasReadyToReawaken, SerpentOffering, ReawakenExecutionWindow, GCDTime(1));
-	private bool FinishNormalCombo
+	private float PlannedBurstWindow => TimingChoice.Advance && TimingChoice.Count > 0
+		? TimingChoice.Count * ReawakenCycle - OuroborosPvE.Cooldown.RecastTimeOneChargeRaw
+		: VPRSyncPlusPolicy.PlannedBurstWindow(HasReadyToReawaken, SerpentOffering, ReawakenExecutionWindow, GCDTime(1));
+	private float ReawakenPayload => ReawakenPvE.Cooldown.RecastTimeOneChargeRaw
+		+ 4f * FirstGenerationPvE.Cooldown.RecastTimeOneChargeRaw;
+	private float ReawakenCycle => ReawakenPayload + OuroborosPvE.Cooldown.RecastTimeOneChargeRaw;
+	private float ReawakenAdmission => Math.Max(ReawakenExecutionWindow, Math.Max(ReawakenPayload, ReawakenPvE.Config.TimeToKill));
+	// Actor death is terminal only in verified final-phase encounter contexts. Unknown contexts preserve pooling.
+	private float CandidateFinalKillIn => SchedulerTarget?.GameObjectId == HostileTarget?.GameObjectId
+		&& VPRSyncPlusTiming.IsFinalContext(DataCenter.TerritoryID, SchedulerTarget?.BaseId ?? 0) ? FinalKillIn : float.NaN;
+	private bool NormalComboPending => IsLastComboAction(ActionID.SteelFangsPvE, ActionID.ReavingFangsPvE,
+		ActionID.HuntersStingPvE, ActionID.SwiftskinsStingPvE, ActionID.SteelMawPvE, ActionID.ReavingMawPvE,
+		ActionID.HuntersBitePvE, ActionID.SwiftskinsBitePvE);
+	private VPRSyncPlusTimingChoice TimingChoice
+	{
+		get
+		{
+			if (!IsBurst || ReserveBurst || NormalComboPending || !NODREAD || HasReawakenedActive || AnguineTributeStacks > 0
+				|| !SynchronizePartyBurst || SyncPlusBurstPlan == VPRSyncPlusPlan.TrustParty) return default;
+			var target = SchedulerTarget?.GameObjectId ?? 0;
+			var resources = HashCode.Combine(SerpentOffering, RattlingCoilStacks, HasReadyToReawaken, NoAbilityReady,
+				StatusHelper.PlayerStatusTime(true, StatusID.Medicated), StatusHelper.PlayerStatusTime(true, StatusID.ReadyToReawaken),
+				NormalComboRemaining, GCDTime(1));
+			if (_timingComputedAt == EncounterTime && _timingComputedTarget == target && _timingComputedResources == resources)
+				return _timingChoice;
+			_timingComputedAt = EncounterTime;
+			_timingComputedTarget = target;
+			_timingComputedResources = resources;
+			return _timingChoice = CalculateTimingChoice();
+		}
+	}
+	private VPRSyncPlusTimingChoice CalculateTimingChoice()
+	{
+		if (!IsBurst || ReserveBurst || NormalComboPending || !NODREAD || HasReawakenedActive || AnguineTributeStacks > 0 || !SynchronizePartyBurst || SyncPlusBurstPlan == VPRSyncPlusPlan.TrustParty
+			|| !OuroborosPvE.EnoughLevel || !FourthLegacyPvE.EnoughLevel || ReawakenCycle <= 0f) return default;
+		var windows = LearnedBurstWindows();
+		if (windows.Length == 0) return default;
+		var vulnerableIn = BMRVulnerableIn;
+		var vulnerableEnd = BMRVulnerableEndIn;
+		var vulnerabilityOpen = vulnerableEnd is > 0f and < float.MaxValue
+			&& (!(vulnerableIn is > 0f and < float.MaxValue) || vulnerableEnd <= vulnerableIn);
+		if (TimelineAvailable && (vulnerabilityOpen || vulnerableIn is > 0f && vulnerableIn <= LookAheadSeconds)) return default;
+		var legacyWindow = VPRSyncPlusPolicy.PlannedBurstWindow(HasReadyToReawaken, SerpentOffering, ReawakenExecutionWindow, GCDTime(1));
+		var legacyDecision = VPRSyncPlusScheduler.Evaluate(BuildSnapshot(legacyWindow));
+		if (legacyDecision.ForceRelease || legacyDecision.Downtime != VPRSyncPlusDowntimeAction.None
+			|| VPRSyncPlusPolicy.StableDecisionReason(legacyDecision.Reason) == "vulnerability window") return default;
+		if (!HasReadyToReawaken && VPRSyncPlusPolicy.ShouldPoolGauge(SynchronizePartyBurst, PartyBurstActive,
+			false, SerpentOffering, SerpentsIrePvE.EnoughLevel && SerpentsIrePvE.IsEnabled
+				&& SerpentsIrePvE.Cooldown.ElapsedAfter(ReawakenDelayTimer), SecondsUntilExpectedPartyBurst, legacyDecision.ForceRelease)) return default;
+		var wait = legacyDecision.Burst == VPRSyncPlusBurstGate.Commit || (!HasReadyToReawaken && SerpentOffering == 100)
+			? 0f
+			: PartyBurstActive
+				? FullPartyBurstActive ? 0f : Math.Max(0f, VPRSyncPlusPolicy.EffectiveOverlapWait(
+					_shortestActivePartyBuffRemaining, legacyWindow, OverlapWaitSeconds) - SecondsInPartyBurst)
+				: SecondsUntilExpectedPartyBurst ?? float.NaN;
+		var ireIn = SerpentsIrePvE.EnoughLevel && SerpentsIrePvE.IsEnabled && RattlingCoilStacks < MaxRattling
+			? SerpentsIrePvE.Cooldown.RecastTimeRemainOneCharge : float.MaxValue;
+		var funded = Math.Clamp(SerpentOffering / 50, 0, 2) + (HasReadyToReawaken ? 1 : 0);
+		if (!HasReadyToReawaken && funded > 0 && ireIn <= ReawakenCycle) funded++;
+		var entryWait = HasReadyToReawaken
+			? Math.Min(wait, Math.Max(0f, StatusHelper.PlayerStatusTime(true, StatusID.ReadyToReawaken) - GCDTime(2))) : wait;
+		var latestEntry = Math.Max(entryWait, Math.Max(UncoiledFuryPvE.Cooldown.RecastTimeOneChargeRaw,
+			3f * HuntersCoilPvE.Cooldown.RecastTimeOneChargeRaw)) + Math.Max(0, funded - 1) * ReawakenCycle;
+		// Do not credit future upkeep refreshes or entries the native user timers would reject.
+		if (SwiftTime <= latestEntry + Math.Max(SwiftTimer, ReawakenPayload)
+			|| HuntersTime <= latestEntry + Math.Max(HuntersTimer, ReawakenPayload)) return default;
+		return VPRSyncPlusTiming.Choose(HasReadyToReawaken, SerpentOffering,
+			ireIn, wait,
+			StatusHelper.PlayerStatusTime(true, StatusID.ReadyToReawaken),
+			TimelineAvailable ? DowntimeIn : float.MaxValue, CandidateFinalKillIn,
+			ReawakenPvE.Cooldown.RecastTimeOneChargeRaw, FirstGenerationPvE.Cooldown.RecastTimeOneChargeRaw,
+			OuroborosPvE.Cooldown.RecastTimeOneChargeRaw,
+			float.MaxValue, 0f,
+			RattlingCoilStacks > 1 && NoAbilityReady && !WillSwiftEnd && !WillHunterEnd,
+			UncoiledFuryPvE.Cooldown.RecastTimeOneChargeRaw, GCDTime(2), windows,
+			HasReadyToReawaken && VicewinderPvE.EnoughLevel && VicewinderPvE.IsEnabled
+				&& VicewinderPvE.Cooldown.CurrentCharges > 0 && SerpentOffering <= 90 && SerpentOffering % 50 < 40
+				&& RattlingCoilStacks < MaxRattling && NoAbilityReady && !WillSwiftEnd && !WillHunterEnd,
+			HuntersCoilPvE.Cooldown.RecastTimeOneChargeRaw, ReawakenAdmission);
+	}
+
+	private VPRSyncPlusBuffWindow[] LearnedBurstWindows()
+	{
+		var result = new List<VPRSyncPlusBuffWindow>();
+		foreach (var buff in Buffs)
+		{
+			if (!VPRSyncPlusPolicy.ShouldExpectPartyBuff(EncounterTime, _observedPartyBuffs.Contains(buff))) continue;
+			if (!_learnedBuffWindows.TryGetValue(buff, out var observed)) return [];
+			if (buff.Type == StatusType.Debuff && observed.Target != (SchedulerTarget?.GameObjectId ?? 0)) return [];
+			if (PartyBuffRemaining(buff) is > 0f and float remaining)
+				result.Add(new(0f, remaining));
+			else
+			{
+				var start = observed.Start + PartyBurstCycle - EncounterTime;
+				while (start < -MaximumBurstHoldSeconds) start += PartyBurstCycle;
+				if (start < 0f) return [];
+				result.Add(new(start, start + observed.Duration));
+			}
+		}
+		if (StatusHelper.PlayerStatusTime(true, StatusID.Medicated) is > 0f and float medicine)
+			result.Add(new(0f, medicine));
+		return result.ToArray();
+	}
+	private float NormalComboRemaining
 	{
 		get
 		{
@@ -204,10 +310,11 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 			var venom = single ? StatusHelper.PlayerStatusTime(true, StatusID.HindsbaneVenom,
 				StatusID.HindstungVenom, StatusID.FlanksbaneVenom, StatusID.FlankstungVenom)
 				: aoe ? StatusHelper.PlayerStatusTime(true, StatusID.GrimhuntersVenom, StatusID.GrimskinsVenom) : 0f;
-			return VPRSyncPlusPolicy.ShouldFinishNormalCombo(single || aoe,
-				VPRSyncPlusPolicy.ComboDeadline(LiveComboTime, venom), PlannedBurstWindow, GCDTime(1));
+			return VPRSyncPlusPolicy.ComboDeadline(LiveComboTime, venom);
 		}
 	}
+	private bool FinishNormalCombo => VPRSyncPlusPolicy.ShouldFinishNormalCombo(
+		NormalComboPending, NormalComboRemaining, PlannedBurstWindow, GCDTime(1));
 
 	private VPRSyncPlusDecision Decision
 	{
@@ -248,8 +355,8 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 		}
 	}
 
-	private VPRSyncPlusDecision EvaluateBurstDecision()
-		=> VPRSyncPlusScheduler.Evaluate(new VPRSyncPlusSnapshot(
+	private VPRSyncPlusSnapshot BuildSnapshot(float plannedWindow)
+		=> new VPRSyncPlusSnapshot(
 				IsBurst,
 				ReserveBurst,
 				SynchronizePartyBurst,
@@ -269,10 +376,62 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 				MaximumBurstHoldSeconds,
 				VPRSyncPlusPolicy.EffectiveOverlapWait(
 					_shortestActivePartyBuffRemaining,
-					PlannedBurstWindow,
+					plannedWindow,
 					OverlapWaitSeconds),
 				LookAheadSeconds,
-				HasReadyToReawaken));
+				HasReadyToReawaken);
+
+	private VPRSyncPlusDecision EvaluateBurstDecision()
+	{
+		var decision = VPRSyncPlusScheduler.Evaluate(BuildSnapshot(PlannedBurstWindow));
+		if (IsBurst && !ReserveBurst && ReawakenReady && decision.Downtime == VPRSyncPlusDowntimeAction.None
+			&& SyncPlusBurstPlan != VPRSyncPlusPlan.TrustParty
+			&& !PartyBurstActive && VPRSyncPlusPolicy.StableDecisionReason(decision.Reason) != "vulnerability window"
+			&& PackageRelease)
+			return new(VPRSyncPlusBurstGate.Commit, VPRSyncPlusResourcePlan.Spend,
+				"paid Reawaken fits potion before the next raid-buff window", ForceRelease: true);
+		if (IsBurst && !ReserveBurst && ReawakenReady && decision.Downtime == VPRSyncPlusDowntimeAction.None
+			&& SyncPlusBurstPlan != VPRSyncPlusPlan.TrustParty
+			&& VPRSyncPlusPolicy.StableDecisionReason(decision.Reason) != "vulnerability window"
+			&& (TimingChoice.Advance || (!PartyBurstActive && VPRSyncPlusTiming.FinalPackageWins(HasReadyToReawaken, SerpentOffering,
+				SerpentsIrePvE.EnoughLevel && SerpentsIrePvE.IsEnabled && RattlingCoilStacks < MaxRattling ? SerpentsIrePvE.Cooldown.RecastTimeRemainOneCharge : float.MaxValue,
+				SecondsUntilExpectedPartyBurst, CandidateFinalKillIn, ReawakenPayload, ReawakenCycle, ReawakenAdmission))))
+			return new(VPRSyncPlusBurstGate.Commit, VPRSyncPlusResourcePlan.Spend,
+				"complete hit schedule improves learned windows or the final kill", ForceRelease: true);
+		return decision;
+	}
+
+	private bool PackageRelease => VPRSyncPlusPolicy.ShouldReleasePotion(
+		HasReadyToReawaken, SerpentOffering,
+		SynchronizePartyBurst && !PartyBurstActive ? SecondsUntilExpectedPartyBurst : null,
+		StatusHelper.PlayerStatusTime(true, StatusID.Medicated),
+		SchedulerTarget?.GetTTK() ?? float.NaN,
+		TimelineAvailable ? DowntimeIn : float.MaxValue, ReawakenExecutionWindow);
+
+	private bool EarnedIreCoilLoss => !NormalComboPending && EarnedIreCoilLossAt(GCDTime(1));
+	private bool EarnedIreCoilLossAt(float fundingTime) => !HasReadyToReawaken && NoAbilityReady && NODREAD
+		&& !HasReawakenedActive && AnguineTributeStacks == 0 && HasHostilesInRange
+		&& SerpentsIrePvE.EnoughLevel && SerpentsIrePvE.IsEnabled && ReawakenPvE.EnoughLevel && ReawakenPvE.IsEnabled
+		&& SwiftTime > fundingTime + Math.Max(SwiftTimer, ReawakenPayload)
+		&& HuntersTime > fundingTime + Math.Max(HuntersTimer, ReawakenPayload)
+		&& (!TimelineAvailable || DowntimeIn >= fundingTime + ReawakenAdmission)
+		&& VPRSyncPlusTiming.EarnsCoilLoss(true, SerpentOffering, CandidateFinalKillIn,
+			fundingTime, UncoiledFuryPvE.Cooldown.RecastTimeOneChargeRaw, ReawakenPayload, minimumAdmission: ReawakenAdmission);
+	private bool EarnedViceCoilLoss => !HasReadyToReawaken && NoAbilityReady && NODREAD
+		&& !HasReawakenedActive && AnguineTributeStacks == 0 && HasHostilesInRange
+		&& ReawakenPvE.EnoughLevel && ReawakenPvE.IsEnabled && VicewinderPvE.IsEnabled
+		&& (!TimelineAvailable || DowntimeIn >= 3f * HuntersCoilPvE.Cooldown.RecastTimeOneChargeRaw + ReawakenAdmission)
+		&& VPRSyncPlusTiming.EarnsCoilLoss(false, SerpentOffering, CandidateFinalKillIn,
+			3f * HuntersCoilPvE.Cooldown.RecastTimeOneChargeRaw,
+			UncoiledFuryPvE.Cooldown.RecastTimeOneChargeRaw, ReawakenPayload,
+			(IsLastComboAction(ActionID.HuntersStingPvE, ActionID.SwiftskinsStingPvE, ActionID.HuntersBitePvE, ActionID.SwiftskinsBitePvE) ? 1f
+				: IsLastComboAction(ActionID.SteelFangsPvE, ActionID.ReavingFangsPvE, ActionID.SteelMawPvE, ActionID.ReavingMawPvE) ? 2f : 3f) * GCDTime(1), ReawakenAdmission);
+
+	private bool PrioritizeEarnedGenerator => IsBurst && NoAbilityReady && !ReserveBurst
+		&& ((EarnedIreCoilLoss && SerpentsIrePvE.CanUse(out _))
+			|| (EarnedViceCoilLoss && LiveComboTime > GCDTime(3) && IsSwift && !FinishNormalCombo
+				&& VicewinderPvE.CanUse(out _, usedUp: true)
+				&& CandidateAllowsBurst(VicewinderPvE, () => EarnedViceCoilLoss)));
 
 	#region Burst & Action Hooks
 	private bool ShouldCommitPersonalBurst => Decision.Burst == VPRSyncPlusBurstGate.Commit;
@@ -286,16 +445,31 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 			SwiftTime > SwiftTimer,
 			HuntersTime > HuntersTimer,
 			TargetEndsBeforeBurstPayload,
-			!TargetDying,
+			!TargetDying || (float.IsFinite(CandidateFinalKillIn) && CandidateFinalKillIn >= ReawakenAdmission),
 			TimelineAvailable,
 			DowntimeWithin(ReawakenExecutionWindow),
 			SerpentOffering == 100,
 			HasReadyToReawaken);
 
+	private bool ShouldDelayIreToken
+	{
+		get
+		{
+			// A verified final kill can still spend Ire's coil. Otherwise save an unusable token for the next boss.
+			if (!SerpentsLineageTrait.EnoughLevel || !ReawakenPvE.EnoughLevel || !IsCurrentTargetBoss
+				|| float.IsFinite(CandidateFinalKillIn)) return false;
+			var life = SchedulerTarget?.GetTTK() ?? float.NaN;
+			if (!(life >= 0f && life <= Math.Max(0f, WeaponRemain) + ReawakenAdmission)) return false;
+			var returnsIn = BMRDowntimeEndIn;
+			return !(TimelineAvailable && DowntimeIn is > 0f and < float.MaxValue
+				&& returnsIn >= DowntimeIn && returnsIn + GCDTime(1) < 30f);
+		}
+	}
+
 	private bool ShouldUseSerpentsIre
-		=> VPRSyncPlusPolicy.ShouldUseSerpentsIre(
+		=> !ShouldDelayIreToken && VPRSyncPlusPolicy.ShouldUseSerpentsIre(
 			IsBurst && !ReserveBurst,
-			RattlingCoilStacks < MaxRattling,
+			(RattlingCoilStacks < MaxRattling || EarnedIreCoilLoss),
 			SerpentsIrePvE.Cooldown.HasOneCharge);
 
 	protected override bool AllowSerpentsIre => ShouldUseSerpentsIre;
@@ -304,18 +478,34 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 			HasReadyToReawaken, SerpentOffering,
 			SerpentsIrePvE.EnoughLevel && SerpentsIrePvE.IsEnabled && SerpentsIrePvE.Cooldown.ElapsedAfter(ReawakenDelayTimer), SecondsUntilExpectedPartyBurst,
 			Decision.ForceRelease);
-	protected override bool AllowViceCombo => !FinishNormalCombo && !VPRSyncPlusPolicy.ShouldDelayViceCombo(
+	protected override bool AllowViceCombo => (RattlingCoilStacks < MaxRattling || EarnedViceCoilLoss)
+		&& !FinishNormalCombo && (TimingChoice.ViceBefore || !VPRSyncPlusPolicy.ShouldDelayViceCombo(
 		SynchronizePartyBurst, ReawakenReady, PartyBurstActive, SecondsUntilExpectedPartyBurst,
 		GCDTime(3) + 1f,
 		SwiftTime > Math.Max(SwiftTimer, GCDTime(3) + 1f)
-			&& HuntersTime > Math.Max(HuntersTimer, GCDTime(3) + 1f), ShouldHoldFlexibleResources);
-	protected override bool AllowUncoiledFury => (!FinishNormalCombo || !HasHostilesInRange)
+			&& HuntersTime > Math.Max(HuntersTimer, GCDTime(3) + 1f), ShouldHoldFlexibleResources));
+	// Fury needs both weave slots. Reserve them only with room for both a native Vice fallback and imminent Ire.
+	private bool ReserveWeaveForIre => IsBurst && !ReserveBurst && !HasReadyToReawaken
+		&& NoAbilityReady && NODREAD && !HasReawakenedActive && AnguineTributeStacks == 0
+		&& RattlingCoilStacks + 1 < MaxRattling && HasHostilesInRange && !TargetDying
+		&& SerpentsLineageTrait.EnoughLevel && SerpentsIrePvE.EnoughLevel && SerpentsIrePvE.IsEnabled
+		&& ReawakenPvE.EnoughLevel && ReawakenPvE.IsEnabled
+		&& SerpentsIrePvE.Cooldown.RecastTimeRemainOneCharge is >= 0f and var ireIn && ireIn <= GCDTime(1)
+		&& (!SerpentsIrePvE.Cooldown.HasOneCharge || SerpentsIrePvE.CanUse(out _))
+		&& SwiftTime > GCDTime(1) + Math.Max(SwiftTimer, ReawakenPayload)
+		&& HuntersTime > GCDTime(1) + Math.Max(HuntersTimer, ReawakenPayload)
+		&& (SchedulerTarget?.GetTTK() ?? 0f) > GCDTime(1) + ReawakenAdmission
+		&& (!TimelineAvailable || DowntimeIn > GCDTime(1) + ReawakenAdmission)
+		&& !ShouldCommitPersonalBurst && !Decision.ForceRelease
+		&& Decision.Downtime == VPRSyncPlusDowntimeAction.None && !TimingChoice.FuryBefore;
+
+	protected override bool AllowUncoiledFury => !ReserveWeaveForIre && !PrioritizeEarnedGenerator && (!FinishNormalCombo || !HasHostilesInRange)
 		&& VPRSyncPlusPolicy.ShouldSpendUncoiledFury(
 		ShouldHoldFlexibleResources, PartyBurstActive, RattlingCoilStacks, MaxRattling,
-		HasHostilesInRange, TargetDying || (MedicineUncoiledFury && StatusHelper.PlayerHasStatus(true, StatusID.Medicated)));
+		HasHostilesInRange, TimingChoice.FuryBefore || TargetDying || (MedicineUncoiledFury && StatusHelper.PlayerHasStatus(true, StatusID.Medicated)));
 	protected override bool PreferUncoiledFury => PartyBurstActive || SpendFuryBeforeFreeReawaken;
 	// A free token held across a jump must not prevent spending coils before it.
-	protected override bool SpendFuryBeforeFreeReawaken => HasReadyToReawaken && Decision.Downtime != VPRSyncPlusDowntimeAction.None;
+	protected override bool SpendFuryBeforeFreeReawaken => HasReadyToReawaken && (Decision.Downtime != VPRSyncPlusDowntimeAction.None || TimingChoice.FuryBefore);
 	protected override bool AllowBurstMedicine => ShouldCommitPersonalBurst && !ReserveBurst;
 
 	protected override bool TryUseReawaken(out IAction? act)
@@ -332,6 +522,29 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 			&& CandidateAllowsBurst(UncoiledFuryPvE, () => (!preferred || PreferUncoiledFury) && AllowUncoiledFury)) return true;
 		act = null;
 		return false;
+	}
+
+	protected override bool TryUseViceCombo(bool aoe, out IAction? act)
+	{
+		var action = aoe ? VicepitPvE : VicewinderPvE;
+		if (action.CanUse(out act, usedUp: true)
+			&& CandidateAllowsBurst(action, () => AllowViceCombo)) return true;
+		act = null;
+		return false;
+	}
+
+	protected override bool AttackAbility(IAction nextGCD, out IAction? act)
+	{
+		IAction? selectedAction = null;
+		var allowed = nextGCD is IBaseAction selected && CandidateAllowsBurst(selected, () =>
+		{
+			if (ShouldDelayIreToken) return false;
+			if (RattlingCoilStacks < MaxRattling) return base.AttackAbility(nextGCD, out selectedAction);
+			return IsBurst && !ReserveBurst && EarnedIreCoilLossAt(Math.Max(.1f, WeaponRemain))
+				&& SerpentsIrePvE.CanUse(out selectedAction);
+		});
+		act = selectedAction;
+		return allowed;
 	}
 
 	private bool CandidateAllowsBurst(IBaseAction action, Func<bool> allowed)
@@ -363,6 +576,12 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 	protected override bool GeneralGCD(out IAction? act)
 	{
 		_ = Decision;
+		if (NoAbilityReady && !FinishNormalCombo && TimingChoice.ViceBefore
+			&& TryUseViceCombo(false, out act)
+			&& CandidateAllowsBurst(VicewinderPvE, () => TimingChoice.ViceBefore)) return true;
+		if (NoAbilityReady && !FinishNormalCombo && TimingChoice.FuryBefore
+			&& TryUseUncoiledFury(out act, preferred: true)
+			&& CandidateAllowsBurst(UncoiledFuryPvE, () => TimingChoice.FuryBefore)) return true;
 		return base.GeneralGCD(out act);
 	}
 
@@ -389,6 +608,7 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 	#region Tracking and Diagnostics
 	private void ResetPartyBurstAnchor()
 	{
+		_timingComputedAt = float.MinValue;
 		_lastObservedPartyBurstAt = -1f;
 		_observedPartyBurstCycle = 0;
 		_lastPartyBuffScanAt = -1f;
@@ -423,6 +643,7 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 			_pendingBurstExpectedBuffs = 0;
 			_lastReportedReasonKey = string.Empty;
 			_observedPartyBuffs.Clear();
+			_learnedBuffWindows.Clear();
 		}
 
 		_lastEncounterTime = InCombat ? encounterTime : 0f;
@@ -563,6 +784,16 @@ public sealed class VPR_SyncPlus : VPR_Reborn
 			}
 			if (isActive)
 			{
+				var remaining = PartyBuffRemaining(buff);
+				if (InCombat && remaining > 0f)
+				{
+					if (!_learnedBuffWindows.TryGetValue(buff, out var learned)
+						|| encounterTime > learned.Start + learned.Duration + 1f
+						|| (buff.Type == StatusType.Debuff && learned.Target != targetId))
+						_learnedBuffWindows[buff] = new(encounterTime, remaining, buff.Type == StatusType.Buff ? 0 : targetId);
+					else
+						_learnedBuffWindows[buff] = learned with { Duration = Math.Max(learned.Duration, encounterTime - learned.Start + remaining) };
+				}
 				shortestActiveRemaining = Math.Min(shortestActiveRemaining, PartyBuffRemaining(buff));
 			}
 
@@ -839,6 +1070,144 @@ internal readonly record struct VPRSyncPlusSnapshot(
 	bool FreeReawaken);
 #endregion
 
+internal readonly record struct VPRSyncPlusObservedWindow(float Start, float Duration, ulong Target);
+internal readonly record struct VPRSyncPlusBuffWindow(float Start, float End);
+internal readonly record struct VPRSyncPlusTimingChoice(bool Advance, int Count, bool FuryBefore, bool ViceBefore = false);
+
+internal static class VPRSyncPlusTiming
+{
+	// Native territory / BossMod module OID identities; earlier phases and unverified duties are not final kills.
+	internal static bool IsFinalContext(uint territory, uint baseId) => (territory, baseId) is
+		(1232, 0x43AE) or // Wicked Thunder P2
+		(1263, 0x472E) or // Howling Blade P2
+		(1325, 0x4B02) or // Lindwurm P2
+		(1238, 0x45AF) or // Pandora
+		(1363, 0x4C37);   // Kefka P5
+
+	internal static bool EarnsCoilLoss(bool ire, int gauge, float finalKill, float fundingTime, float furyGcd, float payload, float alternativeFundingTime = float.MaxValue, float minimumAdmission = VPRSyncPlusPolicy.MinimumReawakenWindow)
+	{
+		// Only a proven extra complete final-kill Reawaken earns sacrificing a 1,020-potency coil.
+		var funded = ire ? gauge < 40 : gauge is >= 40 and < 50;
+		var admission = Math.Max(payload, minimumAdmission);
+		return funded && fundingTime > 0f && furyGcd > 0f && payload > 0f
+			&& finalKill >= fundingTime + admission && finalKill < furyGcd + Math.Min(fundingTime, alternativeFundingTime) + admission;
+	}
+
+	internal static bool FinalPackageWins(bool free, int gauge, float ireIn, float? predicted,
+		float finalKill, float payload, float cycle, float minimumAdmission = VPRSyncPlusPolicy.MinimumReawakenWindow)
+	{
+		var admission = Math.Max(payload, minimumAdmission);
+		if (!float.IsFinite(finalKill) || !(finalKill >= admission) || !(cycle > 0f) || predicted is not > 0f) return false;
+		var count = Math.Clamp(gauge / 50, 0, 2) + (free ? 1 : 0);
+		if (!free && count > 0 && ireIn <= cycle) count++;
+		int Fits(float delay) => Math.Min(count, Math.Max(0, 1 + (int)MathF.Floor((finalKill - delay - admission) / cycle)));
+		return Fits(0f) > Fits(predicted.Value);
+	}
+
+	internal static VPRSyncPlusTimingChoice Choose(bool free, int gauge, float ireIn, float predicted,
+		float tokenRemaining, float downtime, float finalKill, float entryGcd, float generationGcd, float recoveryGcd,
+		float comboRemaining, float comboRecovery, bool spareFury, float furyGcd, float tokenMargin, VPRSyncPlusBuffWindow[] windows, bool spareVice = false, float coilGcd = 0f, float minimumAdmission = VPRSyncPlusPolicy.MinimumReawakenWindow)
+	{
+		var payload = entryGcd + 4f * generationGcd;
+		var cycle = payload + recoveryGcd;
+		if (!(entryGcd > 0f) || !(generationGcd > 0f) || !(recoveryGcd > 0f)
+			|| !(predicted >= 0f) || windows.Length == 0) return default;
+		var count = Math.Clamp(gauge / 50, 0, 2) + (free ? 1 : 0);
+		if (!free && count > 0 && ireIn <= cycle) count++;
+		if (count == 0) return default;
+		var available = Math.Min(downtime, finalKill >= 0f ? finalKill : float.MaxValue);
+		var baselineWait = free ? Math.Min(predicted, Math.Max(0f, tokenRemaining - tokenMargin)) : predicted;
+		var baselineCount = Math.Min(count, 2);
+		var baseline = Scores(baselineWait, baselineCount, 0);
+		if (baseline == null) return default;
+		var best = baseline;
+		VPRSyncPlusTimingChoice chosen = default;
+		for (var prefix = 0; prefix <= 2; prefix++)
+		for (var front = 1; front <= count; front++)
+		{
+			if (prefix == 1 && !(free && spareFury && furyGcd > 0f)) continue;
+			if (prefix == 2 && !(free && spareVice && coilGcd > 0f)) continue;
+			var prefixDuration = prefix == 1 ? furyGcd : prefix == 2 ? 3f * coilGcd : 0f;
+			var start = prefix == 0 ? 0f : baselineWait;
+			if (prefix > 0 && tokenRemaining <= Math.Max(start, prefixDuration) + .7f) continue;
+			var scores = Scores(start, front, prefix);
+			if (scores == null || !Dominates(scores, best)) continue;
+			best = scores;
+			chosen = new(prefix == 0, comboRecovery > 0f ? front : (int)(scores[^3] / 5900f), prefix == 1, prefix == 2);
+		}
+		return chosen;
+
+		float[]? Scores(float start, int front, int prefix)
+		{
+			var result = new float[windows.Length * 3 + 3];
+			var prefixDuration = prefix == 1 ? furyGcd : prefix == 2 ? 3f * coilGcd : 0f;
+			var first = Math.Max(start, prefixDuration);
+			if (free && first >= tokenRemaining - .3f) return null;
+			var pause = comboRecovery > 0f && front < count ? comboRecovery : 0f;
+			// A normal combo can finish during the hold, or between complete Reawaken sequences.
+			if (comboRecovery > 0f && first + front * cycle + comboRecovery >= comboRemaining)
+			{
+				if (front == baselineCount && prefix == 0 && start == baselineWait)
+				{
+					first = Math.Max(first, comboRecovery);
+					pause = 0f;
+				}
+				else return null;
+			}
+			for (var i = 0; i < count; i++)
+			{
+				var at = first + i * cycle + (i >= front ? pause : 0f);
+				if (at + Math.Max(payload, minimumAdmission) > available) continue;
+				result[^3] += 5900f;
+				Hit(at, 750f, 0);
+				for (var g = 0; g < 4; g++)
+				{
+					var generation = at + entryGcd + g * generationGcd;
+					Hit(generation, 680f, 0);
+					Hit(generation + .7f, 320f, 0);
+				}
+				Hit(at + payload, 1150f, 0);
+			}
+			if (spareFury)
+			{
+				var at = prefix == 1 ? 0f : first + count * cycle + pause;
+				if (at + 1.4f <= available) result[^2] += 1020f;
+				Hit(at, 680f, 1); Hit(at + .7f, 170f, 1); Hit(at + 1.4f, 170f, 1);
+			}
+			if (spareVice)
+			{
+				var at = prefix == 2 ? 0f : first + count * cycle + pause + (spareFury && prefix != 1 ? furyGcd : 0f);
+				if (at + 2f * coilGcd + 1.4f <= available) result[^1] += 2480f;
+				Hit(at, 540f, 2);
+				for (var c = 1; c <= 2; c++)
+				{
+					Hit(at + c * coilGcd, 630f, 2);
+					Hit(at + c * coilGcd + .7f, 170f, 2);
+					Hit(at + c * coilGcd + 1.4f, 170f, 2);
+				}
+			}
+			return result;
+			void Hit(float at, float potency, int family)
+			{
+				if (at > available) return;
+				for (var w = 0; w < windows.Length; w++)
+					if (at >= windows[w].Start && at < windows[w].End) result[w * 3 + family] += potency;
+			}
+		}
+	}
+
+	private static bool Dominates(float[] candidate, float[] incumbent)
+	{
+		var improves = false;
+		for (var i = 0; i < candidate.Length; i++)
+		{
+			if (candidate[i] < incumbent[i]) return false;
+			improves |= candidate[i] > incumbent[i];
+		}
+		return improves;
+	}
+}
+
 internal static class VPRSyncPlusScheduler
 {
 	internal const string DowntimeDumpReason = "downtime too close for a full window; spending resources";
@@ -962,6 +1331,7 @@ internal static class VPRSyncPlusScheduler
 
 internal static class VPRSyncPlusPolicy
 {
+	internal const float MinimumReawakenWindow = 9.5f;
 	internal static bool ShouldUseSecondMedicine(bool enabled, float now, float earliest,
 		bool medicineAllowed, bool reawakenAllowed, bool nextIsReawaken)
 		=> enabled && now >= earliest && medicineAllowed && reawakenAllowed && nextIsReawaken;
@@ -1022,6 +1392,16 @@ internal static class VPRSyncPlusPolicy
 	internal static bool ShouldSpendUncoiledFury(bool banking, bool liveBuffs, int coils,
 		int capacity, bool inMelee, bool mustSpend)
 		=> !banking || liveBuffs || coils >= capacity || !inMelee || mustSpend;
+
+	internal static bool ShouldReleasePotion(bool freeReawaken, int gauge, float? predicted,
+		float medicineRemaining, float targetLifetime, float downtimeIn, float payload)
+	{
+		// Spend a paid use only when the complete potion window precedes the learned raid window.
+		// Overlapping windows need hit-by-hit valuation; completion counts alone can lose buffed Generations/Legacies.
+		return !freeReawaken && gauge >= 50 && medicineRemaining >= payload
+			&& predicted is float until && until >= medicineRemaining
+			&& (!float.IsFinite(targetLifetime) || targetLifetime >= payload) && downtimeIn >= payload;
+	}
 
 	internal static float EffectiveOverlapWait(
 		float shortestActiveBuffRemaining,
