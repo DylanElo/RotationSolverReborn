@@ -932,6 +932,13 @@ public class MCH_SyncPlus : MCH_Reborn
 	/// Preserve Full Metal Field until an imminent Wildfire is actually ready to pair with it.
 	/// The base rotation's expiring-buff safeguard remains ungated, so this cannot lose the use.
 	/// </summary>
+	/// <summary>
+	/// A Barrel that comes back inside party buffs after Wildfire went (FRU P5: the CT Barrel ~16s into P5's burst)
+	/// spends Full Metal Field now; the base gate held it until the buffs ended (10-21: 875.8 -> 885.2).
+	/// </summary>
+	protected override bool FullMetalFieldWithoutWildfire => PartyBurstActive && HasFullMetalMachinist
+		&& !WildfirePvE.Cooldown.WillHaveOneCharge(StatusHelper.PlayerStatusTime(true, StatusID.FullMetalMachinist));
+
 	protected override bool ShouldUseFullMetalField
 	{
 		get

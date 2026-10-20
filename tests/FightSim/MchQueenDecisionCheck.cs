@@ -698,6 +698,22 @@ internal static class MchQueenDecisionCheck
 			Require(Math.Abs(Game.DamageByAction.GetValueOrDefault("Wildfire") - 240 * 6 * 1.05) < .1,
 				$"the selected P5 Wildfire actually detonates at six hits (1440 base potency with live Starry Muse); actual {Game.DamageByAction.GetValueOrDefault("Wildfire"):F1}");
 		});
+		Case("P5 returning Barrel after Wildfire", () =>
+		{
+			// 10-21 live: Wildfire 864, CT Barrel back 875.8 inside the buffs, Full Metal Field held to 885.2.
+			var rotation = FundedCtReturn(50);
+			Game.Step(857.1f - Game.Now);
+			Game.Cooldown(WildfirePvE).FullAt = 0;
+			foreach (var action in new[] { AirAnchorPvE, ChainSawPvE, DrillPvE }) Game.Cooldown(action).FullAt = Game.Now + Math.Min(35, Game.Cooldown(action).OneCharge * Game.Cooldown(action).MaxCharges);
+			Game.Cooldown(BarrelStabilizerPvE).FullAt = 871; // back after Wildfire's window, 6s before Starry Muse ends
+			var start = Game.Now;
+			RunProductionFor(rotation, 22);
+			var barrel = Game.Casts.FirstOrDefault(c => c.Time >= start && c.Action == nameof(BarrelStabilizerPvE));
+			var metal = Game.Casts.FirstOrDefault(c => c.Time > barrel.Time && c.Action.StartsWith(nameof(FullMetalFieldPvE)));
+			Require(barrel.Action != null && barrel.Time < 873, $"P5 Barrel returns inside the buffs; actual {barrel.Time:F2}");
+			Require(metal.Action != null && metal.Time <= barrel.Time + 5.5f && metal.Time < 877,
+				$"Full Metal Field follows the returning Barrel inside Starry Muse; Barrel {barrel.Time:F2}, FMF {(metal.Action == null ? "none" : metal.Time.ToString("F2"))}");
+		});
 		Console.WriteLine($"MCH Queen/P5 decisions: {_checks} assertions passed; {Failures.Count} failed.");
 		if (Failures.Count != 0) throw new InvalidOperationException(string.Join(Environment.NewLine, Failures));
 	}

@@ -205,6 +205,9 @@ public class MCH_Reborn : MachinistRotation
 	/// <summary>Whether a normal, non-expiring Full Metal Field may be committed.</summary>
 	protected virtual bool ShouldUseFullMetalField => true;
 
+	/// <summary>Full Metal Field may go with Wildfire on cooldown (no Wildfire to pair with before the buff ends).</summary>
+	protected virtual bool FullMetalFieldWithoutWildfire => false;
+
 	/// <summary>Whether a cooldown should be saved for the next phase instead of spent now.</summary>
 	protected virtual bool ShouldHoldTool(IBaseAction tool) => false;
 
@@ -682,7 +685,7 @@ public class MCH_Reborn : MachinistRotation
 
 		if (ShouldUseFullMetalField
 			&& !AirAnchorPvE.CanUse(out _) && !ChainSawPvE.CanUse(out _) && !ExcavatorPvE.CanUse(out _) && !HasExcavatorReady
-			&& !IsLastGCD(false, ChainSawPvE) && DrillPvE.Cooldown.CurrentCharges < 2 && (!WildfirePvE.Cooldown.IsCoolingDown || IsLastAction(false, WildfirePvE)))
+			&& !IsLastGCD(false, ChainSawPvE) && DrillPvE.Cooldown.CurrentCharges < 2 && (!WildfirePvE.Cooldown.IsCoolingDown || IsLastAction(false, WildfirePvE) || FullMetalFieldWithoutWildfire))
 		{
 			if (FullMetalFieldPvE.CanUse(out act, skipTTKCheck: true))
 			{
