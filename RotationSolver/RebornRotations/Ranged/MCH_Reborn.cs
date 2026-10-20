@@ -532,27 +532,29 @@ public class MCH_Reborn : MachinistRotation
 			_ => "GaussRound"
 		};
 
+		// Charges are spent, not pooled at the cap: pooling idled them through every downtime and Blazing Shot refund
+		// (10-21 FRU: 88 Double Check/Checkmate in P1-P3 vs 100-103 for top MCH; FightSim +1.7..+2.5% on six pulls).
 		if (canUseChargeAction
 			&& (!FullMetalFieldPvE.EnoughLevel || (FullMetalFieldPvE.EnoughLevel && !nextGCD.IsTheSameTo(false, FullMetalFieldPvE))))
 		{
 			switch (whichToUse)
 			{
 				case "Ricochet":
-					if (CheckmatePvE.EnoughLevel && CheckmatePvE.CanUse(out act, usedUp: ShouldCommitPersonalBurst || IsOverheated))
+					if (CheckmatePvE.EnoughLevel && CheckmatePvE.CanUse(out act, usedUp: true))
 					{
 						return true;
 					}
-					if (!CheckmatePvE.EnoughLevel && RicochetPvE.CanUse(out act, usedUp: ShouldCommitPersonalBurst || IsOverheated))
+					if (!CheckmatePvE.EnoughLevel && RicochetPvE.CanUse(out act, usedUp: true))
 					{
 						return true;
 					}
 					break;
 				case "GaussRound":
-					if (DoubleCheckPvE.EnoughLevel && DoubleCheckPvE.CanUse(out act, usedUp: ShouldCommitPersonalBurst || IsOverheated))
+					if (DoubleCheckPvE.EnoughLevel && DoubleCheckPvE.CanUse(out act, usedUp: true))
 					{
 						return true;
 					}
-					if (!DoubleCheckPvE.EnoughLevel && GaussRoundPvE.CanUse(out act, usedUp: ShouldCommitPersonalBurst || IsOverheated))
+					if (!DoubleCheckPvE.EnoughLevel && GaussRoundPvE.CanUse(out act, usedUp: true))
 					{
 						return true;
 					}
