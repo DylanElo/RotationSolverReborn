@@ -898,7 +898,15 @@ public class MCH_SyncPlus : MCH_Reborn
 			ToolChargeWithinRestWindow)
 		&& !PendingWildfireAroundFullMetal
 		&& !BarrelHandoffPending
-		&& !ReserveHeatForPandora;
+		&& !ReserveHeatForPandora
+		&& !HoldHeatOnIceVeil;
+
+	/// <summary>
+	/// FRU Ice Veil takes half damage and its intermission ends on a timer: a paid Hypercharge there is worth half
+	/// what it is on Oracle (10-21: 397.8 into the Veil; top MCH carry the Heat into P3, 4 Hypercharges there to our 3).
+	/// </summary>
+	private bool HoldHeatOnIceVeil => DataCenter.IsInFRU && SchedulerTarget is { BaseId: 0x45A5 }
+		&& !HasWildfire && !HasHypercharged && Heat < 100;
 
 	/// <summary>
 	/// Barrel Stabilizer is about to open a committed burst: the capped-Heat Hypercharge (an emergency, so it ran
