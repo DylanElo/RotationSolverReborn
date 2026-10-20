@@ -14,6 +14,13 @@ dotnet run --project tests/FightSim -- --check-downtime
 The job comes from the timeline (`"job"`, written by timeline.py from the player's FFLogs job; BRD when absent). The rotation
 defaults to BRD_Plan / MCH_Plan; `--rotation` takes any rotation class name. MCH has no procs, so its seeds are identical.
 
+## HP checks
+Every run ends with an `HP check` block for the timed phases whose boss only has to be under 20% when the phase timer runs out
+(P2 Usurper, P3 Oracle). The log's boss HP at the end of the window is moved by the sim's difference in this player's damage over
+the window (real damage per potency from the log's own hits, divided by the boss's HP pool); the party's damage stays the log's.
+`Slack` is how many HP points under 20% it ends: 10-21's P2 had 1.2, the other MCH pulls 2-7. A change that raises DPS but drops
+slack below zero fails the check in a real pull.
+
 ## Focused MCH Queen / P5 decisions
 
 ```powershell

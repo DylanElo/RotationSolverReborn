@@ -114,6 +114,11 @@ Console.WriteLine(config.ValueKind == JsonValueKind.Object ? $"RSR config: {conf
 
 var phases = Phases(timeline);
 var runs = new List<(double Total, Dictionary<string, double> ByAction, double[] ByPhase)>();
+// P2 Usurper / P3 Oracle end on a timer and only check HP <= 20%: the player's damage moves the HP at the end of the window.
+var hpChecks = new (string Name, uint BaseId, double MaxHp)[] { ("P2 Usurper", 0x459F, 25151231), ("P3 Oracle", 0x45A7, 30909445) }
+	.Select(c => (c.Name, c.MaxHp, Actor: timeline.Actors.FirstOrDefault(a => a.BaseId == c.BaseId))).Where(c => c.Actor != null).ToList();
+var checkWindows = hpChecks.Select(c => (Start: c.Actor!.Spans[0][0], End: c.Actor.Spans[^1][1])).ToList();
+var checkDamage = new List<double[]>();
 var ctFinaleRuns = 0;
 for (var seed = seedStart; seed < seedStart + seeds; seed++)
 {
@@ -123,6 +128,7 @@ for (var seed = seedStart; seed < seedStart + seeds; seed++)
 	Driver.Run(rotation, seed, replayUtilities && jobName == "BRD");
 	if (checkCtCodas && BardCtCheck.Validate(timeline, seed)) ctFinaleRuns++;
 	var byPhase = phases.Select(p => Game.DamageEvents.Where(e => e.Time >= p.Start && e.Time < p.End).Sum(e => e.Damage)).ToArray();
+	checkDamage.Add(checkWindows.Select(w => Game.DamageEvents.Where(e => e.Time >= w.Start && e.Time < w.End).Sum(e => e.Damage)).ToArray());
 	runs.Add((Game.DamageEvents.Sum(e => e.Damage), Game.DamageByAction.GroupBy(kv => Norm(kv.Key)).ToDictionary(g => g.Key, g => g.Sum(kv => kv.Value)), byPhase));
 	if (seedReport)
 		Console.WriteLine("SEED " + JsonSerializer.Serialize(new { seed, total = runs[^1].Total / timeline.Duration,
@@ -163,6 +169,24 @@ foreach (var name in runs.SelectMany(r => r.ByAction.Keys).Concat(log.ByAction.K
 	var s = runs.Average(r => r.ByAction.GetValueOrDefault(name));
 	var l = log.ByAction.GetValueOrDefault(name);
 	Console.WriteLine($"{name,-22}{s,10:F0}{l,10:F0}{s - l,10:F0}");
+}
+// HP at the end of each timed phase: the log's, moved by the sim's difference in damage over the window (real damage per potency
+// from the log's own hits). Only this player's damage changes; the party's is the log's.
+if (hpChecks.Count > 0)
+{
+	Console.WriteLine();
+	Console.WriteLine($"{"HP check",-12}{"Log HP",9}{"Sim HP",9}{"Slack",9}  (limit 20%; slack in HP points, + passes)");
+	for (var i = 0; i < hpChecks.Count; i++)
+	{
+		var (name, maxHp, actor) = hpChecks[i];
+		var (a, b) = checkWindows[i];
+		var logHp = actor!.Hp.Where(h => h[0] <= b).Select(h => (double)h[1]).LastOrDefault(double.NaN);
+		var logPot = log.ByPhase(a, b);
+		var real = timeline.LoggedHits.Where(h => h[0].GetSingle() >= a && h[0].GetSingle() < b).Sum(h => h[2].GetDouble());
+		var delta = checkDamage.Average(d => d[i]) - logPot;
+		var simHp = logHp - delta * (real / logPot) / maxHp;
+		Console.WriteLine($"{name,-12}{logHp,9:P2}{simHp,9:P2}{(0.20 - simHp) * 100,8:F2}   {(simHp <= 0.20 ? "pass" : "FAIL")}");
+	}
 }
 return 0;
 

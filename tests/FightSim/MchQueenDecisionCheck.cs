@@ -714,6 +714,31 @@ internal static class MchQueenDecisionCheck
 			Require(metal.Action != null && metal.Time <= barrel.Time + 5.5f && metal.Time < 877,
 				$"Full Metal Field follows the returning Barrel inside Starry Muse; Barrel {barrel.Time:F2}, FMF {(metal.Action == null ? "none" : metal.Time.ToString("F2"))}");
 		});
+		Case("crystal burst Queen takes the first weave", () =>
+		{
+			// 10-21 live: control returns at the crystals with the buffs already rolling; Air Anchor takes Battery to 90, then
+			// Reassemble, Checkmate, Wildfire, Hypercharge each took the weave and the Queen came out 6.5s later (381.1),
+			// two Roller Dashes before the crystal died and nothing else. Top MCH summon on the first weave.
+			var real = Timeline.Load(FindTimeline("fru-mch-gNfDjbmTPvGK16dx-3.json"));
+			var fixture = real with
+			{
+				PartyBuffs = real.PartyBuffs.Select(b => b.Start is > 360 and < 380 ? b with { Start = 372.2f } : b).ToList(),
+				EnemyDebuffs = real.EnemyDebuffs?.Select(d => d.Start is > 360 and < 380 ? d with { Start = 372.2f } : d).ToList(),
+			};
+			var rotation = Reset(0x459F, 372f, timeline: fixture);
+			Machinist.Gauge.Heat = 50;
+			Machinist.Gauge.Battery = 70;
+			foreach (var id in new[] { BarrelStabilizerPvE, WildfirePvE, AirAnchorPvE, ChainSawPvE }) Game.Cooldown(id).FullAt = 0;
+			Game.Cooldown(DrillPvE).FullAt = Game.Now + 20;
+			var start = Game.Now;
+			RunProductionFor(rotation, 24);
+			Require(Game.DamageByAction.GetValueOrDefault("Pile Bunker") > 0 && Game.DamageByAction.GetValueOrDefault("Crowned Collider") > 0
+				&& Game.DamageByAction.GetValueOrDefault("Arm Punch") >= 1300, "the crystal Queen lands five Arm Punches and both finishers before the crystals fall");
+			var queen = Game.Casts.FirstOrDefault(c => c.Time >= start && c.Action.StartsWith(nameof(AutomatonQueenPvE)));
+			var wildfire = Game.Casts.FirstOrDefault(c => c.Time >= start && c.Action == nameof(WildfirePvE));
+			Require(queen.Action != null && wildfire.Action != null && queen.Time < wildfire.Time,
+				$"the crystal Queen goes before Wildfire; Queen {(queen.Action == null ? "none" : queen.Time.ToString("F2"))}, Wildfire {(wildfire.Action == null ? "none" : wildfire.Time.ToString("F2"))}");
+		});
 		Console.WriteLine($"MCH Queen/P5 decisions: {_checks} assertions passed; {Failures.Count} failed.");
 		if (Failures.Count != 0) throw new InvalidOperationException(string.Join(Environment.NewLine, Failures));
 	}
@@ -897,6 +922,13 @@ internal static class MchQueenDecisionCheck
 		}
 		return rotation;
 	}
+	private static string FindTimeline(string name)
+	{
+		for (var dir = new DirectoryInfo(Directory.GetCurrentDirectory()); dir != null; dir = dir.Parent)
+			if (File.Exists(Path.Combine(dir.FullName, "tests", "FightSim", "timelines", name))) return Path.Combine(dir.FullName, "tests", "FightSim", "timelines", name);
+		throw new FileNotFoundException(name);
+	}
+
 	private static void RunProductionFor(CustomRotation rotation, float seconds)
 	{
 		var end = Game.Now + seconds;

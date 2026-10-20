@@ -817,6 +817,11 @@ public class MCH_SyncPlus : MCH_Reborn
 	protected override void OnQueenDeployed(int battery)
 		=> LogQueenTimelineState($"selected at {battery} Battery");
 
+	/// <summary>FRU Crystals of Light/Darkness (0x45A3) with the Queen ready to go: she outranks the burst weaves.</summary>
+	private bool CrystalQueenFirst => DataCenter.IsInFRU && IsBurst && Battery >= 80 && !IsRobotActive
+		&& SchedulerTarget is { BaseId: 0x45A3 } crystal && crystal.GetHealthRatio() >= 0.9f
+		&& (float.IsNaN(crystal.GetTTK()) || crystal.GetTTK() >= RequiredQueenLifetime) && !DowntimeWithin(RequiredQueenLifetime);
+
 	/// <summary>
 	/// True in the early portion of the GCD right after Full Metal Field resolves, before the
 	/// late-weave slot where MCH_Reborn's own Wildfire-around-FMF check gets to run. Confirmed live:
@@ -1137,6 +1142,17 @@ public class MCH_SyncPlus : MCH_Reborn
 		// statement added there would fail silently. Reading Decision still guarantees the tracker
 		// has run this frame, because the getter runs it on the first read.
 		_ = Decision;
+		// The crystals live ~20s and the Queen needs ~17s to finish on them: she takes the first weave, ahead of the burst oGCDs
+		// (10-21: Reassemble, Checkmate, Wildfire and Hypercharge each took the slot and she came out 6.5s late, then was
+		// Overdriven as the crystal died with two hits landed; top MCH summon on the first weave).
+		// Fresh crystals have no TTK history yet, which is what kept her out of the first weave; their ~20s life is the mechanic.
+		if (CrystalQueenFirst && (AutomatonQueenPvE.EnoughLevel
+			? AutomatonQueenPvE.CanUse(out act, skipTTKCheck: true)
+			: RookAutoturretPvE.CanUse(out act, skipTTKCheck: true)))
+		{
+			OnQueenDeployed(Battery);
+			return true;
+		}
 		// The downtime Barrel's free Hypercharge, after its Full Metal Field and around the tools (top logs: ~10s
 		// into the uptime). Nothing else would release it: every Hypercharge path waits for a Wildfire not coming.
 		if (UnclaimedBarrelBuffs && HasHypercharged && !HasFullMetalMachinist && !IsOverheated
