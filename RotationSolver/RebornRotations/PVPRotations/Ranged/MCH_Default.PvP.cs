@@ -13,6 +13,14 @@ public sealed class MCH_DefaultPvP : MachinistRotation
 
 	private static bool HasOverheatedPvP => StatusHelper.PlayerHasStatus(true, StatusID.Overheated_3149);
 
+	private static bool HasAnalysisPvP => StatusHelper.PlayerHasStatus(true, StatusID.Analysis);
+
+	private bool CanUseAnyToolPvP =>
+		DrillPvP.CanUse(out _, usedUp: true)
+		|| AirAnchorPvP.CanUse(out _, usedUp: true)
+		|| ChainSawPvP.CanUse(out _, usedUp: true)
+		|| BioblasterPvP.CanUse(out _, usedUp: true);
+
 	#region oGCDs
 	protected override bool EmergencyAbility(IAction nextGCD, out IAction? action)
 	{
@@ -81,9 +89,10 @@ public sealed class MCH_DefaultPvP : MachinistRotation
 			return true;
 		}
 
+		// Let a ready tool spend an active Analysis first, but never stall Overheated when none can be cast.
 		if (BlazingShotPvP.CanUse(out action))
 		{
-			if (HasOverheatedPvP && !StatusHelper.PlayerHasStatus(true, StatusID.Analysis))
+			if (HasOverheatedPvP && !(HasAnalysisPvP && CanUseAnyToolPvP))
 			{
 				return true;
 			}
@@ -94,17 +103,18 @@ public sealed class MCH_DefaultPvP : MachinistRotation
 			return true;
 		}
 
-		if (BioblasterPvP.CanUse(out action, usedUp: true))
-		{
-			return true;
-		}
-
 		if (AirAnchorPvP.CanUse(out action, usedUp: true))
 		{
 			return true;
 		}
 
 		if (ChainSawPvP.CanUse(out action, usedUp: true))
+		{
+			return true;
+		}
+
+		// Weakest tool (+50% on a 12s DoT is only ~4,000 total), so it goes last.
+		if (BioblasterPvP.CanUse(out action, usedUp: true))
 		{
 			return true;
 		}
