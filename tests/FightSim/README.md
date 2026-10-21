@@ -76,6 +76,18 @@ Focused tests override object lookup explicitly to exercise actual removal and r
 To judge a rotation change, run before and after on the same timelines. 20 seeds take about a minute. The seed-to-seed
 spread is ~1% of DPS, so the mean is good to ~0.3%.
 
+## FRU P1 pad
+
+```powershell
+dotnet run --project tests/FightSim -c Release -- --check-fru-pad
+```
+
+The real `FRUPad.Padding` on the sim's 1/s HP record and cast replay (35 checks). Synthetic HP curves cover the enrage
+cast, the pre-cast 160s fallback (9.7s floor), the 5% / last-5s / NaN guards, non-FRU and other targets. The logged P1 ends
+of the six MCH timelines pin what it does to real pulls: it never holds in AWX-7/8/10 and jJX-5/27, and holds only
+149.5-153.6s in gNf-3 (the party killed Fatebreaker at 160.0, 1.6s before the cast ends). After the cast bar ends the
+fallback applies again; that is a wipe either way, so the replay stops at the cast end.
+
 ## Final-kill dump
 
 ```powershell

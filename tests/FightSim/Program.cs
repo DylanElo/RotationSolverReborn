@@ -37,6 +37,11 @@ if (args.Contains("--check-final-kill"))
 	FinalKillCheck.Run();
 	return 0;
 }
+if (args.Contains("--check-fru-pad"))
+{
+	FruPadCheck.Run();
+	return 0;
+}
 if (args.Contains("--check-downtime"))
 {
 	DowntimeForecastCheck.Run();
