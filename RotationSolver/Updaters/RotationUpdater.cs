@@ -370,6 +370,7 @@ internal static class RotationUpdater
 
 	public static void UpdateRotation()
 	{
+		RotationSolverPlugin.EnsureTerritoryCurrent();
 		UpdateCustomRotation();
 		UpdateDutyRotation();
 	}

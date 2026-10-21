@@ -220,8 +220,30 @@ public sealed class RotationSolverPlugin : IAsyncDalamudPlugin
 		}, delay);
 	}
 
+	private static uint _lastResyncedTerritoryId;
+
+	/// <summary>
+	/// Re-reads the live territory when <see cref="DataCenter.Territory"/> has drifted from it,
+	/// e.g. a missed or mis-ordered TerritoryChanged event. Without this, IsPvP can stay false
+	/// for a whole PvP match and PvE rotations get selected.
+	/// </summary>
+	internal static void EnsureTerritoryCurrent()
+	{
+		var liveId = DataCenter.TerritoryID;
+		if (liveId == 0 || DataCenter.Territory?.Id == liveId || liveId == _lastResyncedTerritoryId)
+		{
+			return;
+		}
+
+		// Attempt once per live id so an unresolvable sheet row can't reset records every frame.
+		PluginLog.Warning($"Territory out of sync (cached {DataCenter.Territory?.Id}, live {liveId}); refreshing.");
+		ClientState_TerritoryChanged(liveId);
+		_lastResyncedTerritoryId = liveId;
+	}
+
 	private static void ClientState_TerritoryChanged(uint id)
 	{
+		_lastResyncedTerritoryId = 0;
 		DataCenter.ResetAllRecords();
 
 		if (id == 0)
