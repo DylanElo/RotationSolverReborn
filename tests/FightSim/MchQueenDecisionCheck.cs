@@ -80,7 +80,7 @@ internal static class MchQueenDecisionCheck
 			Require(!(bool)Property(rotation, "ShouldHoldBarrel")!.GetValue(rotation)!,
 				"a fresh P2 party burst is admitted normally");
 		});
-		Case("P1 burst admission anticipates padding", () =>
+		Case("P1 Hypercharge anticipates padding", () =>
 		{
 			var actor = new TimelineActor("boss", 0x459B, "Fatebreaker", [[0, 160]],
 				[[137, .104f], [140, .08f]], [[0, 100, 100]], null);
@@ -92,12 +92,21 @@ internal static class MchQueenDecisionCheck
 			Machinist.Gauge.Heat = 100;
 			Game.Cooldown(WildfirePvE).FullAt = Game.Cooldown(BarrelStabilizerPvE).FullAt = 0;
 			Game.Step(3);
-			Require(!(bool)Property(rotation, "ShouldUseWildfire")!.GetValue(rotation)!,
-				"Wildfire waits when current HP loss predicts padding before its payload finishes");
-			Require((bool)Property(rotation, "ShouldHoldBarrel")!.GetValue(rotation)!,
-				"Barrel is not consumed into an impending P1 padding interruption");
+			// Wildfire and Barrel no longer look ahead to the pad (sim: it pushed P1/P2 Wildfire past the buffs).
 			Require(rotation.NextAbility(NoGcd)?.ID != (uint)HyperchargePvE,
 				"capped Heat cannot start a payload that upcoming padding would interrupt");
+		});
+		foreach (var left in new[] { 2f, 10f })
+		Case("unclaimed prepared Barrel spends its free Hypercharge before expiry " + left, () =>
+		{
+			var rotation = Reset(0x459F, 300);
+			Game.TtkOverride = 250;
+			// The planned window is open but the party never buffed, so the Barrel never reads as unclaimed.
+			Game.Timeline.PlanWindows.Add(new(290, 310, false));
+			Game.Player.Statuses[StatusID.Hypercharged] = left;
+			var ability = rotation.NextAbility(NoGcd);
+			Require((ability?.ID == (uint)HyperchargePvE) == (left < 3f),
+				"a free Hypercharge with no burst coming is spent in its last 3s, not earlier");
 		});
 		foreach (var ttk in new[] { 3f, 8f, 15f })
 		Case("P1 capped Heat respects remaining payload lifetime " + ttk, () =>

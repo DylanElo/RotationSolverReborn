@@ -666,7 +666,7 @@ public class MCH_SyncPlus : MCH_Reborn
 		get
 		{
 			UpdateDungeonTracker();
-			return !WaitForPandoraBarrel && !P2OpeningBuffTail && !FatebreakerPaddingWithin(WildfirePayloadWindow) && MCHSyncPlusPolicy.ShouldUseWildfire(
+			return !WaitForPandoraBarrel && !P2OpeningBuffTail && MCHSyncPlusPolicy.ShouldUseWildfire(
 				Decision.Wildfire == MCHSyncPlusBurstGate.Commit,
 				AutomaticDungeon,
 				_dungeonBossEncounter || IsCurrentTargetBoss,
@@ -729,12 +729,14 @@ public class MCH_SyncPlus : MCH_Reborn
 	// A second enemy that is dying too (the P4 pair) is not somewhere for the Queen to go.
 	private bool QueenHasNextTarget => AllHostileTargets.Any(t => t.GameObjectId != QueenTarget?.GameObjectId && !t.IsDying());
 
-	/// <summary>Preserve target life except when a bounded UR preparation carries Barrel's tokens through the stun.</summary>
+	/// <summary>P2 opened inside a burst that started before it, with too little of it left for a Wildfire payload.</summary>
 	private bool P2OpeningBuffTail => DataCenter.IsInFRU && SchedulerTarget is { BaseId: 0x459F }
 		&& PartyBurstActive && _partyBurstStartedAt >= 0f && _partyBurstStartedAt < _lastAttackableQueenPhaseStartedAt
 		&& _shortestActivePartyBuffRemaining < WildfirePayloadWindow;
 
-	protected override bool ShouldHoldBarrel => P2OpeningBuffTail || FatebreakerPaddingWithin(WildfirePayloadWindow) || !PrepareBarrelBeforeRelativity && (TargetEndsBeforeWildfirePayload || TargetDying)
+	/// <summary>Preserve target life except when a bounded UR preparation carries Barrel's tokens through the stun.</summary>
+	// No P1 pad lookahead here or on Wildfire: it held the P1 2-minute Wildfire past the buffs and pushed P2's 18s late (sim).
+	protected override bool ShouldHoldBarrel => P2OpeningBuffTail || !PrepareBarrelBeforeRelativity && (TargetEndsBeforeWildfirePayload || TargetDying)
 		&& !AllHostileTargets.Any(t => t != SchedulerTarget && !t.IsDying())
 		// Final kill: Full Metal Field lands on the next GCD, at most one GCD away.
 		&& !(FinalKillIn >= GCDTime(1));
@@ -786,7 +788,7 @@ public class MCH_SyncPlus : MCH_Reborn
 		&& MCHSyncPlusPolicy.ShouldReleaseFinalQueen(
 		Battery, IsRobotActive, DataCenter.IsInFRU && target.BaseId == 0x45AF
 			&& RecentObjectiveInOf(target) is >= 0f and < float.MaxValue
-			? Math.Min(target.GetTTK(), RecentObjectiveInOf(target)) : target.GetTTK(),
+			? (float.IsNaN(target.GetTTK()) ? RecentObjectiveInOf(target) : Math.Min(target.GetTTK(), RecentObjectiveInOf(target))) : target.GetTTK(),
 		RequiredQueenLifetime,
 		GCDTime(2) + 1f, TimelineAvailable ? DowntimeIn : float.MaxValue);
 
@@ -1260,6 +1262,13 @@ public class MCH_SyncPlus : MCH_Reborn
 		{
 			return true;
 		}
+		// A prepared Barrel whose burst never came: its Full Metal Field goes in its last 3s (base GeneralGCD), the free Hypercharge here.
+		if (HasHostilesInRange && HasHypercharged && !HasWildfire && !HasFullMetalMachinist && !IsOverheated
+			&& Decision.Wildfire != MCHSyncPlusBurstGate.Commit && StatusHelper.PlayerStatusTime(true, StatusID.Hypercharged) < 3f
+			&& HyperchargePvE.CanUse(out act, skipTTKCheck: true))
+		{
+			return true;
+		}
 
 		// Ahead of pet weaves and Hypercharge. Once the terminal predicate is true there may be a
 		// single weave slot left, and starting a fresh payload with it banks damage that will never
@@ -1384,7 +1393,7 @@ public class MCH_SyncPlus : MCH_Reborn
 			// this path had no live evidence either way.
 			if (target?.HasStatus(true, StatusID.Wildfire, StatusID.Wildfire_1323) != true) return false;
 			// Once focus leaves a crystal, further single-target weaponskills no longer build its Wildfire.
-			if (DataCenter.IsInFRU && target.BaseId == 0x45A3 && SchedulerTarget?.GameObjectId != target.GameObjectId) return true;
+			if (DataCenter.IsInFRU && target.BaseId == 0x45A3 && SchedulerTarget is { } focus && focus.GameObjectId != target.GameObjectId) return true;
 			if (target.GetTTK() <= 1f) return true;
 			// Near a crystal kill, take an available weave once death is predicted before detonation.
 			var wildfireLeft = target.StatusTime(true, StatusID.Wildfire, StatusID.Wildfire_1323);
