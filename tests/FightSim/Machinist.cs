@@ -202,7 +202,7 @@ public sealed class Machinist : IJob
 		var name = spec.Id.ToString().Replace("PvE", "");
 		var weaponskill = spec.IsGcd;
 		var crit = 1f;
-		if (weaponskill && (p.Statuses.Remove(StatusID.Reassembled) || spec.Id == FullMetalFieldPvE))
+		if (weaponskill && (spec.Id == FullMetalFieldPvE || p.Statuses.Remove(StatusID.Reassembled)))
 		{
 			crit = Guaranteed();
 			Game.Annotate("crit/DH");
@@ -231,9 +231,9 @@ public sealed class Machinist : IJob
 				break;
 			case DrillPvE: HitAll(660); break;
 			case AirAnchorPvE: HitAll(660); AddBattery(20); break;
-			case ChainSawPvE: HitAll(660, 0.65f); AddBattery(20); p.Statuses[StatusID.ExcavatorReady] = 30f; break;
-			case ExcavatorPvE: HitAll(660, 0.65f); AddBattery(20); p.Statuses.Remove(StatusID.ExcavatorReady); break;
-			case FullMetalFieldPvE: HitAll(980, 0.5f); p.Statuses.Remove(StatusID.FullMetalMachinist); break;
+			case ChainSawPvE: HitAll(660, 0.25f); AddBattery(20); p.Statuses[StatusID.ExcavatorReady] = 30f; break;
+			case ExcavatorPvE: HitAll(660, 0.25f); AddBattery(20); p.Statuses.Remove(StatusID.ExcavatorReady); break;
+			case FullMetalFieldPvE: HitAll(980, 0.25f); p.Statuses.Remove(StatusID.FullMetalMachinist); break;
 			case BioblasterPvE: HitAll(50); break; // ponytail: its DoT is not modelled; FRU never has 3+ targets for it
 			case ScattergunPvE: HitAll(160); AddHeat(10); break;
 			case BlazingShotPvE or AutoCrossbowPvE:
@@ -242,7 +242,7 @@ public sealed class Machinist : IJob
 				Game.Cooldown(CheckmatePvE).Reduce(15f);
 				if (--_overheatStacks == 0) Gauge.OverheatEnd = 0f;
 				break;
-			case DoubleCheckPvE or CheckmatePvE: HitAll(180, 0.5f); break;
+			case DoubleCheckPvE or CheckmatePvE: HitAll(180, 0.30f); break;
 			case ReassemblePvE: p.Statuses[StatusID.Reassembled] = 5f; break;
 			case HyperchargePvE:
 				if (!p.Statuses.Remove(StatusID.Hypercharged)) Gauge.Heat -= 50;
@@ -251,7 +251,7 @@ public sealed class Machinist : IJob
 				p.Statuses[StatusID.Overheated] = 10f;
 				break;
 			case WildfirePvE:
-				_wildfire = (target!, Game.Now + 10f, 0, Game.Multiplier());
+				_wildfire = (target!, Game.Now + 10f, 0, Game.Multiplier(target));
 				target!.Statuses[StatusID.Wildfire] = 10f;
 				p.Statuses[StatusID.Wildfire_1946] = 10f;
 				break;

@@ -122,6 +122,9 @@ public sealed class MCH_Plan : MCH_SyncPlus
 	// after a downtime; fix that with a real lower bound for the hidden window, not by dropping the stand-in.
 	private protected override float? SecondsUntilExpectedPartyBurst
 		=> CurrentWindow is { StartIn: > 0f } window ? window.StartIn : base.SecondsUntilExpectedPartyBurst;
+
+	private protected override float? BarrelPreparationIn
+		=> CurrentWindow is { } window ? Math.Max(0f, window.StartIn) : base.BarrelPreparationIn;
 }
 
 internal readonly record struct MCHPlanWindow(float StartIn, float EndIn, bool Potion);

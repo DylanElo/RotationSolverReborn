@@ -24,6 +24,13 @@ JOBS = {
         "RotationSolver/RebornRotations/Ranged/MCH_Plan.cs",
         "tests/FightSim/Machinist.cs",
     ],
+    "BlackMageRotation": [
+        "RotationSolver.Basic/Rotations/Basic/BlackMageRotation.cs",
+        "RotationSolver/RebornRotations/Magical/BLM_Default.cs",
+        "RotationSolver/RebornRotations/Magical/BLM_SyncPlus.cs",
+        "tests/FightSim/BlackMage.cs",
+        "tests/FightSim/BlackMageActions.cs",
+    ],
 }
 SHARED = ["tests/FightSim/Fakes.cs", "tests/FightSim/Game.cs"]
 read = lambda files: "\n".join((ROOT / s).read_text(encoding="utf-8") for s in files)

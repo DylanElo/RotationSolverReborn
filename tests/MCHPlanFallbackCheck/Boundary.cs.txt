@@ -19,7 +19,8 @@ class MCH_SyncPlus {
  public bool TimelineEnabled=true,BMRActive,HasPartyBurstSources=true,AutomaticDungeon,TargetDying,TargetEndsBeforeWildfirePayload;
  public bool IsCurrentTargetBoss=true,WildfireTargetAllowed=true,_dungeonBossEncounter;
  public bool PaddingFatebreaker;
- public float BMRVulnerableIn=float.MaxValue,BMRVulnerableEndIn=float.MaxValue,WildfireHeldFor;
+ public bool WaitForPandoraBarrel,P2OpeningBuffTail; public bool FatebreakerPaddingWithin(float s)=>false; private protected virtual float? BarrelPreparationIn => null;
+ public float BMRVulnerableIn=float.MaxValue,BMRVulnerableEndIn=float.MaxValue,BMRDowntimeEndIn=float.MaxValue,WildfireHeldFor;
  public float LookAheadSeconds=8,MaximumWildfireHoldSeconds=30;
  public const float WildfirePayloadWindow=10,WildfireLateWeaveWindow=0.8f;
  public List<int> Buffs=[1,2];

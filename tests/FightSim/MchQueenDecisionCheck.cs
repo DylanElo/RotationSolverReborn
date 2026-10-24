@@ -17,6 +17,148 @@ internal static class MchQueenDecisionCheck
 	public static void Run()
 	{
 		PrintSources();
+		Case("Full Metal Field preserves Reassemble", () =>
+		{
+			Reset(0x45AF, 900);
+			Game.Player.Statuses[StatusID.FullMetalMachinist] = 30;
+			if (!MCH_Reborn.FullMetalFieldPvE.CanUse(out var fullMetal, skipTTKCheck: true)) throw new InvalidOperationException("FMF model fixture unavailable");
+			Game.Player.Statuses[StatusID.Reassembled] = 5; // Exercise the game model independently of the rotation's optional hold.
+			Game.Execute(fullMetal);
+			Require(Game.Player.HasStatus(true, StatusID.Reassembled), "FMF is unaffected by Reassemble and preserves it for the next weaponskill");
+		});
+
+		foreach (var id in new[] { ChainSawPvE, ExcavatorPvE, FullMetalFieldPvE, DoubleCheckPvE, CheckmatePvE })
+		Case("MCH observed secondary hit ratio " + id, () =>
+		{
+			Reset(0x45A9, 750);
+			Game.Enemies.Add(new Enemy(new("oracle", 0x45AB, "Oracle", [[0, 2000]], [[0, 1]], [[0, 100, 100]], null), 999));
+			Game.Step(.01f);
+			Game.TtkOverride = 100;
+			Game.Cooldown(id).FullAt = 0;
+			if (id == ExcavatorPvE) Game.Player.Statuses[StatusID.ExcavatorReady] = 30;
+			if (id == FullMetalFieldPvE) Game.Player.Statuses[StatusID.FullMetalMachinist] = 30;
+			var action = (IBaseAction)typeof(MCH_Reborn).GetProperty(id.ToString(), BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy)!.GetValue(null)!;
+			Require(action.CanUse(out var selected, skipTTKCheck: true), "two-target model fixture action is usable");
+			Game.Execute(selected);
+			var hits = Game.DamageApplications.TakeLast(2).ToArray();
+			var ratio = id is DoubleCheckPvE or CheckmatePvE ? .70 : .75;
+			Require(hits.Length == 2 && hits.All(h => h.Applied) && Math.Abs(hits[1].Damage / hits[0].Damage - ratio) < .0001,
+				"secondary damage matches official 7.5 falloff and observed paired hits");
+		});
+
+		foreach (var paired in new[] { true, false })
+		Case("P4 Reassemble follows available cleave " + paired, () =>
+		{
+			var rotation = Reset(0x45A9, 750);
+			if (paired) Game.Enemies.Add(new Enemy(new("oracle", 0x45AB, "Oracle", [[0, 2000]], [[0, 1]], [[0, 100, 100]], null), 999));
+			Game.Step(.01f);
+			Game.TtkOverride = 100;
+			Game.Player.Statuses[StatusID.Reassembled] = 5;
+			foreach (var id in new[] { AirAnchorPvE, DrillPvE, ChainSawPvE }) Game.Cooldown(id).FullAt = 0;
+			var next = rotation.NextGcd();
+			Require(next?.ID == (uint)(paired ? ChainSawPvE : AirAnchorPvE),
+				"a confirmed Reassemble takes available P4 cleave; the single-target priority stays unchanged");
+		});
+
+		Case("P2 does not consume Barrel into P1 buff tail", () =>
+		{
+			Reset(0x459B, 130);
+			var fixture = Game.Timeline with {
+				Actors = [new("p1", 0x459B, "Fatebreaker", [[0, 140]], [[0, 1]], [[0, 100, 100]], null),
+					new("p2", 0x459F, "Shiva", [[144, 2000]], [[0, 1]], [[0, 100, 100]], null)],
+				PartyBuffs = [new("Starry Muse", "PCT", 1.05f, 126, 146)] };
+			var rotation = Reset(0x459B, 130, timeline: fixture);
+			rotation.NextGcd();
+			Game.Step(15);
+			Game.Cooldown(BarrelStabilizerPvE).FullAt = Game.Cooldown(WildfirePvE).FullAt = 0;
+			Game.TtkOverride = 150;
+			rotation.NextGcd();
+			Require((bool)Property(rotation, "ShouldHoldBarrel")!.GetValue(rotation)!,
+				"a one-second P1 buff tail cannot consume the Barrel needed by P2's real burst");
+			Game.Timeline.PartyBuffs.Add(new("Starry Muse", "PCT", 1.05f, 150, 170));
+			Game.Step(2); rotation.NextGcd(); Game.Step(4); rotation.NextGcd();
+			Require(!(bool)Property(rotation, "ShouldHoldBarrel")!.GetValue(rotation)!,
+				"a fresh P2 party burst is admitted normally");
+		});
+		Case("P1 burst admission anticipates padding", () =>
+		{
+			var actor = new TimelineActor("boss", 0x459B, "Fatebreaker", [[0, 160]],
+				[[137, .104f], [140, .08f]], [[0, 100, 100]], null);
+			Reset(0x459B, 137);
+			var fixture = Game.Timeline with { Actors = [actor], PartyBuffs = [new("Starry Muse", "PCT", 1.05f, 130, 150)] };
+			var rotation = Reset(0x459B, 137, timeline: fixture);
+			Property(rotation, "PadFatebreaker")!.SetValue(rotation, true);
+			Game.TtkOverride = 30;
+			Machinist.Gauge.Heat = 100;
+			Game.Cooldown(WildfirePvE).FullAt = Game.Cooldown(BarrelStabilizerPvE).FullAt = 0;
+			Game.Step(3);
+			Require(!(bool)Property(rotation, "ShouldUseWildfire")!.GetValue(rotation)!,
+				"Wildfire waits when current HP loss predicts padding before its payload finishes");
+			Require((bool)Property(rotation, "ShouldHoldBarrel")!.GetValue(rotation)!,
+				"Barrel is not consumed into an impending P1 padding interruption");
+			Require(rotation.NextAbility(NoGcd)?.ID != (uint)HyperchargePvE,
+				"capped Heat cannot start a payload that upcoming padding would interrupt");
+		});
+		foreach (var ttk in new[] { 3f, 8f, 15f })
+		Case("P1 capped Heat respects remaining payload lifetime " + ttk, () =>
+		{
+			var rotation = Reset(0x459B, 150);
+			Game.TtkOverride = ttk;
+			Machinist.Gauge.Heat = 100;
+			var ability = rotation.NextAbility(NoGcd);
+			Require((ability?.ID == (uint)HyperchargePvE) == (ttk >= 8),
+				"a capped P1 gauge only starts Hypercharge when the complete payload can land before P2");
+		});
+		foreach (var disabled in new[] { true, false })
+		Case("crystal reservation releases unusable Wildfire " + disabled, () =>
+		{
+			var rotation = Reset(0x45A3, 375);
+			Game.TtkOverride = disabled ? 30 : 5;
+			Game.Timeline.PartyBuffs.Add(new("Starry Muse", "PCT", 1.05f, 374, 394));
+			Game.Player.Statuses[StatusID.FullMetalMachinist] = 25;
+			Game.Player.Statuses[StatusID.Hypercharged] = 25;
+			Game.Cooldown(WildfirePvE).FullAt = Game.Now + 5;
+			MCH_Reborn.WildfirePvE.Config.IsEnabled = !disabled;
+			Game.Step(.01f);
+			rotation.NextGcd();
+			Require(!(bool)Property(rotation, "PreparedBurstBarrelAwaitsWildfire")!.GetValue(rotation)!,
+				"disabled Wildfire or insufficient crystal lifetime cannot reserve the Barrel payload");
+		});
+		foreach (var baseId in new uint[] { 0x45AF, 0x45A9 })
+		foreach (var recent in new[] { 20f, 12f, float.NaN })
+		Case($"recent HP final Queen {baseId:X} {recent}", () =>
+		{
+			var hp = .6f;
+			var actor = new TimelineActor("boss", baseId, "boss", [[0, 2000]],
+				[[100, float.IsNaN(recent) ? hp : hp * (1 + 3 / recent)], [103, hp]], [[0, 100, 100]], null);
+			Reset(baseId, 100);
+			var fixture = Game.Timeline with { Actors = [actor] };
+			var rotation = Reset(baseId, 100, timeline: fixture);
+			Game.TtkOverride = 40;
+			Machinist.Gauge.Battery = 90;
+			Game.Step(3);
+			var expected = baseId == 0x45AF && recent == 20;
+			Require((bool)Property(rotation, "LastViableQueenWindow")!.GetValue(rotation)! == expected,
+				"only final Pandora with sufficient recent lifetime opens the full Queen release window");
+			if (expected) Require(rotation.NextAbility(NoGcd)?.ID == (uint)AutomatonQueenPvE,
+				"the production selector executes the final full Queen from recent HP evidence");
+		});
+		Case("Wildfire snapshots the target debuff", () =>
+		{
+			Reset(0x45AF, 100);
+			var fixture = Game.Timeline with { EnemyDebuffs = [new("boss", "Dokumori", "NIN", 1.05f, 99, 102)] };
+			Reset(0x45AF, 100, timeline: fixture);
+			Game.Cooldown(WildfirePvE).FullAt = 0;
+			Machinist.Gauge.Heat = 50;
+			if (!MCH_Reborn.WildfirePvE.CanUse(out var wildfire, skipTTKCheck: true)) throw new InvalidOperationException("snapshot Wildfire unavailable");
+			Game.Execute(wildfire);
+			Game.Step(.7f);
+			MCH_Reborn.HeatedSplitShotPvE.CanUse(out var shot);
+			Game.Execute(shot);
+			Game.Step(11);
+			Require(Math.Abs(Game.DamageByAction.GetValueOrDefault("Wildfire") - 240 * 1.05) < .01,
+				"Wildfire retains the target's cast-time Dokumori multiplier after the debuff expires");
+		});
 		Case("object creation precedes target visibility", () =>
 		{
 			var actor = new TimelineActor("future", 0x459F, "P2 body", [[0, 2000]], [[0, 1]], [[0, 100, 100]], null, PresentFrom: 102);
@@ -26,6 +168,25 @@ internal static class MchQueenDecisionCheck
 			Require(Game.FindObject(id) == null && !RotationSolver.Basic.DataCenter.AllTargets.Any() && !Game.Hostiles.Any(), "future timeline actors are absent from lookup, targetable AllTargets and hostile selection");
 			Game.Step(2);
 			Require(Game.FindObject(id)?.BaseId == 0x459F && RotationSolver.Basic.DataCenter.AllTargets.Single().GameObjectId == id && Game.Hostiles.Single().GameObjectId == id, "the same actor becomes visible to all native object boundaries at its observed creation time");
+		});
+		foreach (var lifetime in new[] { 3f, 20f })
+		Case("low crystal HP uses predicted payload lifetime " + lifetime, () =>
+		{
+			var rotation = ActiveQueenWildfire(.15f);
+			Game.TtkOverride = lifetime;
+			Require((Select(rotation, "EmergencyAbility")?.ID == (uint)DetonatorPvE) == (lifetime == 3),
+				"low HP alone cannot shorten Wildfire, but an earlier predicted death uses the available weave");
+		});
+		Case("crystal Wildfire banks its payload when focus moves away", () =>
+		{
+			var rotation = ActiveQueenWildfire();
+			var veil = new Enemy(new("veil", 0x45A5, "Ice Veil", [[0, 2000]], [[0, 1]], [[0, 100, 100]], null), 999);
+			Game.Enemies.Add(veil);
+			Game.Step(.01f);
+			Game.CurrentTargetOverride = veil.Chara;
+			Game.TtkOverride = 20;
+			Require(Select(rotation, "EmergencyAbility")?.ID == (uint)DetonatorPvE,
+				"a living crystal's accumulated Wildfire is banked once the weaponskills move to another target");
 		});
 		Case("terminal Detonator wins the pet weave", () =>
 		{
@@ -679,6 +840,120 @@ internal static class MchQueenDecisionCheck
 			Game.Cooldown(BarrelStabilizerPvE).FullAt = 0;
 			Require(rotation.NextAbility(NoGcd)?.ID == (uint)BarrelStabilizerPvE, "approved P3/P4 independent Barrel survives");
 		});
+		Case("partial crystal buffs keep Queen first then prepare Barrel while Wildfire waits", () =>
+		{
+			var rotation = Reset(0x45A3, 371f);
+			Game.Timeline.PartyBuffs.Add(new("Starry Muse", "PCT", 1.05f, 372, 392));
+			Game.Timeline.PartyJobs!.Add("RPR"); // Arcane has not arrived: only one of the two expected buffs is live.
+			Game.Timeline.PlanWindows.Add(new(372, 392, false));
+			Game.Timeline.PartyBuffs.Add(new("Arcane Circle", "RPR", 1.03f, 370, 371.1f));
+			Game.Step(.01f); // Synchronize the observed earlier buff through the native status boundary.
+			rotation.NextGcd(); // Establish that this party's second buff exists, as earlier phases do in a real pull.
+			Game.Step(1.548f);
+			Game.TtkOverride = 30;
+			Machinist.Gauge.Battery = 90;
+			Machinist.Gauge.Heat = 100;
+			foreach (var action in new[] { BarrelStabilizerPvE, WildfirePvE, ReassemblePvE, DoubleCheckPvE, CheckmatePvE })
+				Game.Cooldown(action).FullAt = 0;
+			var queen = rotation.NextAbility(NoGcd);
+			Require(queen?.ID == (uint)AutomatonQueenPvE, "the crystal Queen retains the first actual weave before Barrel");
+			if (queen?.ID != (uint)AutomatonQueenPvE) return;
+			Game.Execute(queen);
+			Game.Step(.7f);
+			var barrel = rotation.NextAbility(NoGcd);
+			Require((bool)Property(rotation, "ShouldCommitPersonalBurst")!.GetValue(rotation)!,
+				"crystals commit to the first live buff without waiting for a missing party buff");
+			Require(barrel?.ID == (uint)BarrelStabilizerPvE,
+				"the next partial-buff crystal weave selects Barrel before Reassemble, capped Heat and filler charges can delay its UR recast");
+			if (barrel?.ID == (uint)BarrelStabilizerPvE)
+			{
+				var at = Game.Now;
+				Game.Execute(barrel);
+				Require(Math.Abs(Game.Cooldown(BarrelStabilizerPvE).FullAt - (at + 120)) < .01f,
+					"the actual prioritized crystal Barrel starts its genuine 120s recast");
+				// 10-22 sim: the early Barrel read as a downtime Barrel, spent Full Metal Field and the free Hypercharge, and Wildfire
+				// (needing that Heat) went out 13s late. They wait for the Wildfire that is 1.7s from ready.
+				Game.Cooldown(WildfirePvE).FullAt = Game.Now + 1.7f;
+				Machinist.Gauge.Heat = 50; // capped Heat would legitimately spend
+				Game.Step(.7f);
+				var after = rotation.NextGcd();
+				Require(after?.ID != (uint)FullMetalFieldPvE,
+					"the crystal Barrel's Full Metal Field waits for the Wildfire that follows");
+				Require(rotation.NextAbility(after ?? NoGcd)?.ID != (uint)HyperchargePvE,
+					"the crystal Barrel's free Hypercharge waits for the Wildfire that follows");
+			}
+		});
+		foreach (var preceding in new[] { false, true })
+		Case("earlier UR Barrel preserves CT and aligns Pandora " + preceding, () =>
+		{
+			var fixture = ObservedBarrelChain(preceding);
+			var ready = preceding ? 493.29f : 492.558f;
+			var firstBuff = preceding ? 861.05f : 856.702f;
+			var buffEnd = preceding ? 881.018f : 876.659f;
+			var rotation = Reset(0x45A7, ready, timeline: fixture);
+			Game.TtkOverride = 250;
+			Game.ForecastOverride = (6.167f, 10.174f);
+			Game.Cooldown(BarrelStabilizerPvE).FullAt = ready;
+			Game.Cooldown(WildfirePvE).FullAt = ready + 4.207f;
+			var early = rotation.NextAbility(NoGcd);
+			Require(early?.ID == (uint)BarrelStabilizerPvE,
+				"a genuine planned P3 burst claims Barrel before the short UR Stun rather than waiting until its end");
+			if (early?.ID != (uint)BarrelStabilizerPvE) return;
+			Game.Execute(early);
+			Game.ForecastOverride = null;
+			Game.Step(ready + 16 - Game.Now);
+			Require(Game.Player.Statuses.GetValueOrDefault(StatusID.FullMetalMachinist) > 0,
+				"the real 30s Full Metal Machinist token survives UR and is available for the P3 burst");
+			// Verify that the actual selector spends the prepared payload while its token remains valid.
+			RunProductionFor(rotation, 14);
+			Require(Game.Casts.Any(c => c.Time > ready && c.Time < ready + 30 && c.Action.StartsWith(nameof(FullMetalFieldPvE))),
+				"prepared P3 Barrel supplies a selected Full Metal Field before its 30s token expires");
+			Game.Step(ready + 120 - Game.Now);
+			var p4 = rotation.NextAbility(NoGcd);
+			Require(p4?.ID == (uint)BarrelStabilizerPvE,
+				"the advanced P3 recast makes the approved P4 Barrel available near 612s");
+			if (p4?.ID != (uint)BarrelStabilizerPvE) return;
+			Game.Execute(p4);
+			var ctReturn = fixture.Actors.First(a => a.BaseId == 0x45A9).Spans[1][0];
+			RunProductionFor(rotation, ctReturn + 10 - Game.Now);
+			// User's plan: the CT Barrel (~12:18) goes before the return and is back for P5.
+			Require(Game.Casts.Any(c => c.Time >= ready + 240 && c.Time < ctReturn && c.Action == nameof(BarrelStabilizerPvE)),
+				"the CT Barrel goes in the downtime before the P4 pair returns");
+			Game.Step(firstBuff - Game.Now);
+			Require(Game.Cooldown(BarrelStabilizerPvE).FullAt <= Game.Now,
+				"the CT Barrel is back by the start of P5 buffs");
+			Game.Cooldown(WildfirePvE).FullAt = 0;
+			Machinist.Gauge.Heat = 0;
+			RunProductionFor(rotation, 21);
+			var p5 = Game.Casts.FirstOrDefault(c => c.Time >= firstBuff && c.Action == nameof(BarrelStabilizerPvE));
+			Require(p5.Action != null && p5.Time < firstBuff + 2.5f,
+				$"reserving Barrel makes its first P5 weave available at buff start; actual {p5.Time:F3}");
+			Require(Game.Casts.Count(c => c.Time >= firstBuff && c.Time < buffEnd && c.Action == nameof(BlazingShotPvE)) >= 5,
+				"all five actual P5 Blazing Shots fit inside the recorded Arcane interval after preserving CT");
+		});
+		Case("prepared UR Barrel within the ordinary five-second veto", () =>
+		{
+			var rotation = Reset(0x45A7, 495);
+			Game.Timeline.PlanWindows.Add(new(508, 528, false));
+			Game.ForecastOverride = (3f, 7f);
+			Game.Cooldown(BarrelStabilizerPvE).FullAt = 0;
+			Require(rotation.NextAbility(NoGcd)?.ID == (uint)BarrelStabilizerPvE,
+				"an actual planned burst safely claims a 30s Barrel token three seconds before UR even inside the normal five-second veto");
+		});
+		foreach (var guard in new[] { "unknown plan", "downtime already started", "Auto Burst off", "wrong phase", "unknown return" })
+		Case("early UR Barrel guard " + guard, () =>
+		{
+			var rotation = Reset(guard == "wrong phase" ? 0x45A9u : 0x45A7u, 492.558f);
+			Game.Timeline.PlanWindows.Add(new(508, 528, false));
+			if (guard == "unknown plan") Game.Timeline.PlanWindows.Clear();
+			Game.ForecastOverride = (guard == "downtime already started" ? 0f : 6.167f, guard == "unknown return" ? float.MaxValue : 10.174f);
+			Game.AutoBurst = guard != "Auto Burst off";
+			Game.Cooldown(BarrelStabilizerPvE).FullAt = 0;
+			Require(guard == "downtime already started"
+				? !(bool)Property(rotation, "CanPrepareBarrelBeforeDowntime")!.GetValue(rotation)!
+				: rotation.NextAbility(NoGcd)?.ID != (uint)BarrelStabilizerPvE,
+				guard + " cannot activate the bounded pre-UR Barrel exception");
+		});
 		Case("P4 to CT to P5 payload", () =>
 		{
 			var rotation = FundedCtReturn(50);
@@ -690,9 +965,9 @@ internal static class MchQueenDecisionCheck
 			RunProductionFor(rotation, 15);
 			foreach (var cast in Game.Casts.Where(c => c.Time >= start)) Console.WriteLine($"P5 {cast.Time:F2} {cast.Action}");
 			var wildfire = Game.Casts.FirstOrDefault(c => c.Time >= start && c.Action == nameof(WildfirePvE));
-			Require(wildfire.Time >= start && wildfire.Time < 861, "P5 Wildfire commits during live buffs before Barrel returns");
-			Require(Game.Casts.Any(c => c.Time >= start && c.Time < 861 && c.Action == nameof(HyperchargePvE)),
-				"P5 paid Hypercharge supplies the early Wildfire payload");
+			Require(wildfire.Time >= start && wildfire.Time < 864, "P5 Wildfire commits with the already-ready Barrel during live buffs");
+			Require(Game.Casts.Any(c => c.Time >= start && c.Time < 865 && c.Action == nameof(HyperchargePvE)),
+				"P5 prepared Hypercharge supplies the Wildfire payload");
 			Require(Game.Casts.Count(c => c.Time >= start && c.Time < 877 && c.Action == nameof(BlazingShotPvE)) >= 5,
 				"five real Blazing Shot selections land before Starry Muse expires");
 			Require(Math.Abs(Game.DamageByAction.GetValueOrDefault("Wildfire") - 240 * 6 * 1.05) < .1,
@@ -841,9 +1116,42 @@ internal static class MchQueenDecisionCheck
 			Property(rotation, name)?.SetValue(rotation, false);
 		return rotation;
 	}
+	private static Timeline ObservedBarrelChain(bool preceding)
+	{
+		// Narrow replay facts from the two 2026-10-22 local long pulls. HP is held healthy here;
+		// these cases prove cooldown/availability and selected payloads, not a whole-fight DPS result.
+		TimelineActor Actor(string key, uint id, List<float[]> spans) => new(key, id, key, spans, [[0, 1]], [[0, 100, 100]], null);
+		var actors = preceding
+			? new List<TimelineActor>
+			{
+				Actor("oracle", 0x45A7, [[440.594f, 602.019f]]),
+				Actor("usurper", 0x45A9, [[607.876f, 705.539f], [755.997f, 773.031f]]),
+				Actor("pairOracle", 0x45AB, [[634.04f, 707.103f], [755.997f, 772.942f]]),
+				Actor("pandora", 0x45AF, [[850.431f, 1122.599f]]),
+			}
+			: new List<TimelineActor>
+			{
+				Actor("oracle", 0x45A7, [[439.704f, 600.821f]]),
+				Actor("usurper", 0x45A9, [[606.663f, 704.831f], [754.856f, 771.792f]]),
+				Actor("pairOracle", 0x45AB, [[632.853f, 705.859f], [754.856f, 771.97f]]),
+				Actor("pandora", 0x45AF, [[849.211f, 1120.97f]]),
+			};
+		var plans = preceding
+			? new List<PlanWindow> { new(504.787f, 524.787f, false), new(632.846f, 652.846f, false), new(852.178f, 872.178f, false) }
+			: new List<PlanWindow> { new(503.68f, 523.68f, false), new(631.924f, 651.924f, false), new(851.893f, 871.893f, false) };
+		var buffs = preceding
+			? new List<PartyBuff> { new("Arcane Circle", "RPR", 1.03f, 510.14f, 530.096f), new("Arcane Circle", "RPR", 1.03f, 635.873f, 655.841f), new("Arcane Circle", "RPR", 1.03f, 861.05f, 881.018f) }
+			: new List<PartyBuff> { new("Arcane Circle", "RPR", 1.03f, 509.028f, 529.024f), new("Arcane Circle", "RPR", 1.03f, 635.265f, 655.25f), new("Arcane Circle", "RPR", 1.03f, 856.702f, 876.659f) };
+		var stuns = preceding
+			? new List<Debuff> { new("Stun", 499.629f, 503.629f), new("Return", 736.812f, 743.812f), new("Stun", 743.82f, 752.82f) }
+			: new List<Debuff> { new("Stun", 498.725f, 502.725f), new("Return", 735.722f, 742.722f), new("Stun", 742.727f, 751.727f) };
+		return new("10-22 observed Barrel opportunity bounds", "MCH", 1130, actors, [[0, 100, 100]], [], buffs, stuns, plans, [], 0,
+			[new("oracle", 40286, preceding ? 503.612f : 502.732f, 2.7f)], [], [], "MCH", ["MCH", "RPR"], [], true);
+	}
+
 	private static MCH_Plan CtDowntimeSnapshot(byte heat)
 	{
-		var pair = new TimelineActor("pair", 0x45A9, "pair", [[0, 740], [760, 780]], [[0, .2f]], [[0, 100, 100]], null);
+		var pair = new TimelineActor("pair", 0x45A9, "pair", [[0, 730], [760, 780]], [[0, .2f]], [[0, 100, 100]], null);
 		var pandora = new TimelineActor("pandora", 0x45AF, "pandora", [[850, 2000]], [[0, 1]], [[0, 100, 100]], null);
 		var fixture = new Timeline("P4/CT/P5 boundary", "MCH", 2000, [pair, pandora], [[0, 100, 100]], [],
 			[new("Starry Muse", "PCT", 1.05f, 857, 877)], [], [new(857, 877, false)], [], 0, [], [], [], "MCH", ["MCH", "PCT"], []);
@@ -851,8 +1159,8 @@ internal static class MchQueenDecisionCheck
 		Game.TtkOverride = 250;
 		rotation.NextAbility(NoGcd); // Observe actual P4 before the downtime snapshot.
 		Machinist.Gauge.Heat = heat;
-		Game.Step(45);
-		Game.ForecastOverride = (float.MaxValue, 15f);
+		Game.Step(35);
+		Game.ForecastOverride = (float.MaxValue, 20f);
 		Game.Cooldown(BarrelStabilizerPvE).FullAt = 0;
 		return rotation;
 	}
@@ -860,11 +1168,12 @@ internal static class MchQueenDecisionCheck
 	{
 		var rotation = CtDowntimeSnapshot(heat);
 		var barrel = rotation.NextAbility(NoGcd);
-		Require(barrel?.ID == (uint)BarrelStabilizerPvE, "15s CT Barrel is selected with the next buff window 112s away");
+		Require(barrel?.ID == (uint)BarrelStabilizerPvE, "20s CT Barrel is selected with a confirmed window 122s away");
 		if (barrel?.ID == (uint)BarrelStabilizerPvE) Game.Execute(barrel);
-		Require(Game.Cooldown(BarrelStabilizerPvE).FullAt == 865, "confirmed CT Barrel has its genuine 120s recast");
-		Game.Step(.7f);
-		rotation.NextAbility(NoGcd); // Observe the actual free Hypercharged status during downtime.
+		Require(Game.Cooldown(BarrelStabilizerPvE).FullAt == 855, "confirmed CT Barrel has its genuine 120s recast");
+		Game.Step(750.1f - Game.Now);
+		Game.ForecastOverride = (float.MaxValue, 9.9f);
+		rotation.NextAbility(NoGcd); // Observe the still-live token inside the final 15 seconds of CT.
 		Game.Step(760.1f - Game.Now);
 		Game.ForecastOverride = null;
 		foreach (var action in new[] { AirAnchorPvE, ChainSawPvE, DrillPvE }) Game.Cooldown(action).FullAt = Game.Now + Math.Min(35.1f, Game.Cooldown(action).OneCharge * Game.Cooldown(action).MaxCharges - .1f);
@@ -898,9 +1207,9 @@ internal static class MchQueenDecisionCheck
 		Game.ForecastOverride = (float.MaxValue, 3f);
 		return rotation;
 	}
-	private static MCH_Plan ActiveQueenWildfire()
+	private static MCH_Plan ActiveQueenWildfire(float hp = .5f)
 	{
-		var rotation = Reset(0x45A3, 380, hp: .5f);
+		var rotation = Reset(0x45A3, 380, hp: hp);
 		Game.TtkOverride = 250;
 		Machinist.Gauge.Battery = 100;
 		Machinist.Gauge.Heat = 50;

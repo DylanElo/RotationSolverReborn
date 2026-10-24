@@ -216,6 +216,7 @@ public class MCH_Reborn : MachinistRotation
 
 	/// <summary>Barrel Stabilizer may go on cooldown without a committed burst (MCH Sync: FRU P3/P4).</summary>
 	protected virtual bool ShouldUseBarrelOnCooldown => false;
+	protected virtual bool CanPrepareBarrelBeforeDowntime => false;
 
 	/// <summary>
 	/// Whether BossMod Reborn timeline data may influence this rotation at all. Every timeline
@@ -413,19 +414,11 @@ public class MCH_Reborn : MachinistRotation
 			}
 		}
 
-		// Gated on the committed burst, NOT "on cooldown" as the guides phrase it. Tried ungated once and
-		// reverted the same session. The guides say on cooldown because holding a
-		// cooldown normally risks losing a use - that cannot happen here: Barrel Stabilizer is a
-		// flat 120s with no charges, and so is Wildfire, so a delay bounded by the 30s hold ceiling
-		// never costs a usage. What ungating DOES cost is the buff itself. Barrel Stabilizer grants
-		// Hypercharged and Full Metal Machinist for exactly 30s, which is also MaximumWildfireHold,
-		// so a full-length hold can expire Full Metal Machinist before Wildfire ever commits and
-		// throw away Full Metal Field (945 effective potency). Worse, with Auto Burst off
-		// ShouldCommitPersonalBurst is false permanently, so an ungated Barrel Stabilizer would
-		// burn both buffs every 120s for nothing.
+		// The base rotation waits for a committed burst. FRU may prepare earlier in Sync's bounded
+		// paths: repeated holds drift the 120s recast, but the prepared tokens still expire after 30s.
 		if (ShouldCommitPersonalBurst || ShouldUseBarrelOnCooldown)
 		{
-			var bmrBlockBarrel = DowntimeWithin(GCDTime(2));
+			var bmrBlockBarrel = DowntimeWithin(GCDTime(2)) && !CanPrepareBarrelBeforeDowntime;
 			if (!bmrBlockBarrel && !ShouldHoldBarrel && BarrelStabilizerPvE.CanUse(out act))
 			{
 				return true;
@@ -576,6 +569,14 @@ public class MCH_Reborn : MachinistRotation
 			&& FullMetalFieldPvE.CanUse(out act, skipTTKCheck: true))
 		{
 			return true;
+		}
+
+		// On FRU's two-boss return, consume Reassemble on cleave before a single-target tool steals it.
+		if (HasReassembled && !IsOverheated && DataCenter.IsInFRU
+			&& (CurrentTarget ?? HostileTarget) is { BaseId: 0x45A9 or 0x45AB })
+		{
+			if (ExcavatorPvE.CanUse(out act, skipTTKCheck: true) && ExcavatorPvE.Target.AffectedTargets.Length >= 2) return true;
+			if (ChainSawPvE.CanUse(out act) && ChainSawPvE.Target.AffectedTargets.Length >= 2) return true;
 		}
 
 		// Once Reassemble is spent, consume it on a usable tool before combo preservation can steal it.

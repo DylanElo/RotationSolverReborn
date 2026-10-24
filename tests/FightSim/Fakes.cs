@@ -13,7 +13,7 @@ namespace Dalamud.Game.ClientState.JobGauge.Enums
 
 namespace Dalamud.Interface.Colors
 {
-	public static class ImGuiColors { public static Vector4 DalamudViolet; }
+	public static class ImGuiColors { public static Vector4 DalamudViolet; public static Vector4 DalamudOrange; }
 }
 
 namespace Dalamud.Bindings.ImGui
@@ -23,6 +23,7 @@ namespace Dalamud.Bindings.ImGui
 		public static void Text(string _) { }
 		public static void TextColored(Vector4 _, string __) { }
 		public static void Spacing() { }
+		public static void Separator() { }
 	}
 }
 
@@ -33,7 +34,7 @@ namespace ECommons.DalamudServices
 	/// <summary>Dalamud service boundaries: logging and current object-table lookup.</summary>
 	public static class Svc
 	{
-		public static class Log { public static void Info(string _) { } }
+		public static class Log { public static void Info(string text) { if (Environment.GetEnvironmentVariable("FIGHTSIM_LOG") == "1") Console.WriteLine($"  LOG {Game.Now,7:F2} {text}"); } }
 		public static ObjectTable Objects { get; } = new();
 		public sealed class ObjectTable : IEnumerable<Dalamud.Game.ClientState.Objects.Types.IBattleChara>
 		{
@@ -115,7 +116,7 @@ namespace RotationSolver.Basic.Data
 	public sealed record TerritoryInfo(TerritoryContentType ContentType);
 	public enum MedicineType : byte { None, Strength, Dexterity, Intelligence, Mind }
 	public enum TargetType : byte { Big, Small, HighHP, LowHP, HighMaxHP, LowMaxHP, Interrupt, Provoke, Death, Dispel, Move, Heal, BeAttacked, Self }
-	public enum SpecialActionType : byte { None, MeleeRange, MovingForward, MovingBackward, FixedDistanceMoveBackward, HostileMovingAttack, MeleeRangedAttack }
+	public enum SpecialActionType : byte { None, MeleeRange, MovingForward, MovingBackward, FixedDistanceMoveBackward, HostileMovingAttack, MeleeRangedAttack, FriendlyMovingForward, ObjectBasedMovement }
 
 	public readonly record struct BMRPlannedAction(string ModuleType, string TrackName, string OptionName, uint ActionType, uint ActionId,
 		float ActivationIn, float WindowEndIn, int Target, int TargetParam);
@@ -148,6 +149,7 @@ namespace RotationSolver.Basic.Actions
 		public bool IsFriendly { get; set; }
 		public uint UnlockedByQuestID { get; set; }
 		public SpecialActionType SpecialType { get; set; }
+		public uint ObjectBasedMovementObjectOID { get; set; }
 		public ActionID[]? ComboIds { get; set; }
 		public ActionID[]? ComboIdsNot { get; set; }
 		public bool IgnoreGuard { get; set; }
@@ -155,7 +157,7 @@ namespace RotationSolver.Basic.Actions
 		public Func<bool>? ActionCheck { get; set; }
 		public Func<bool>? RotationCheck { get; set; }
 		public Func<IBattleChara, bool> CanTarget { get; set; } = _ => true; // ActionSetting default
-		public Func<uint>? MPOverride { get; set; }
+		public Func<uint?>? MPOverride { get; set; }
 		public Func<ActionConfig>? CreateConfig { get; set; }
 	}
 
@@ -185,6 +187,8 @@ namespace RotationSolver.Basic.Actions
 		public bool IsGeneralGCD => IsRealGCD && Game.Job.Spec(action.ActionId).Recast == 0;
 		public uint AdjustedID => (uint)Game.Job.Adjusted(action.ActionId);
 		public bool EnoughLevelAndQuest() => EnoughLevel;
+		public uint MPNeed => Game.Job.MpNeed(action.ActionId);
+		public float CastTime => 2.0f; // only the countdown reads it
 	}
 
 	public readonly struct ActionCooldownInfo(BaseAction action)
@@ -389,6 +393,7 @@ namespace RotationSolver.Basic.Helpers
 	{
 		public static StatusID[] RangePhysicalDefense { get; } = [];
 		public static StatusID[] PurifyPvPStatuses { get; } = [];
+		public static StatusID[] SwiftcastStatus { get; } = [StatusID.Swiftcast, StatusID.Triplecast];
 
 		// StatusHelper: raw remaining time of the earliest matching status, 0 when none.
 		public static float StatusTime(this IBattleChara chara, bool isFromSelf, params ReadOnlySpan<StatusID> ids)
@@ -450,6 +455,7 @@ namespace RotationSolver.Basic.Helpers
 
 	public static class ActionHelper
 	{
+		public static bool IsTheSameTo(this IAction action, bool isAdjust, params ActionID[] ids) => ids.Any(i => (uint)i == action.ID || isAdjust && (uint)i == action.AdjustedID);
 		public static bool IsTheSameTo(this IAction action, bool isAdjust, params IAction[] actions)
 		{
 			foreach (var a in actions)
@@ -479,6 +485,8 @@ namespace RotationSolver.Basic
 		public static bool IsInFRU => Game.IsInFRU;
 		public static float CombatTimeRaw => Game.Now;
 		public static float DefaultGCDTotal => Game.GcdTotal;
+		public static uint CurrentMp => (uint)Math.Floor(FightSim.BlackMage.Mp + 0.5f);
+		public static byte PlayerSyncedLevel() => (byte)Game.Level;
 		public static float DefaultGCDRemain => Game.GcdRemain;
 		public static float DefaultGCDElapsed => Math.Max(0f, DefaultGCDTotal - DefaultGCDRemain);
 		public static float GCDTime(uint gcdCount = 0, float offset = 0) => (DefaultGCDTotal * gcdCount) + offset;
@@ -558,6 +566,11 @@ namespace RotationSolver.Basic.Rotations.Basic
 	public partial class MachinistRotation
 	{
 		internal static FightSim.MachinistGauge JobGauge => FightSim.Machinist.Gauge;
+		}
+		
+		public partial class BlackMageRotation
+		{
+			internal static FightSim.BlackMageGauge JobGauge => FightSim.BlackMage.Gauge;
 	}
 }
 
@@ -646,6 +659,14 @@ namespace RotationSolver.Basic.Rotations
 		public static bool IsLastAbility(params ActionID[] ids) => Game.LastAbility is { } a && ids.Any(i => (uint)i == a.ID || (uint)i == a.AdjustedID);
 
 		public virtual MedicineType MedicineType => MedicineType.None;
+		public static uint CurrentMp => DataCenter.CurrentMp;
+		protected virtual void UpdateInfo() { }
+		public virtual void OnTerritoryChanged() { }
+		public static bool IsLastGCD(params ActionID[] ids) => Game.LastGcd is { } a && ids.Any(i => (uint)i == a.ID || (uint)i == a.AdjustedID);
+		// CustomRotation_OtherInfo.HasBuffs: a party raid buff is up (on the player, or a debuff on a hostile).
+		public static bool HasBuffs => Buffs.Any(b => b.Type == StatusType.Buff ? Game.Player.HasStatus(false, b.Ids) : Game.Hostiles.Any(h => h.HasStatus(false, b.Ids)));
+		public static bool CombatElapsedLess(float time) => Game.Now - Game.StartAt < time;
+		protected static float CountDownAhead => 0.5f;
 		public virtual void DisplayBaseStatus() { }
 
 		// CustomRotation_Items.UseBurstMedicine: a tincture of the job's main stat when its cooldown allows.
@@ -658,6 +679,10 @@ namespace RotationSolver.Basic.Rotations
 		protected virtual IAction? CountDownAction(float remainTime) => null;
 		protected virtual bool EmergencyAbility(IAction nextGCD, out IAction? act) { act = null; return false; }
 		protected virtual bool DispelAbility(IAction nextGCD, out IAction? act) { act = null; return false; }
+		public virtual bool IsBursting() => false;
+		protected static bool HasSwift => Game.Player.HasStatus(true, StatusHelper.SwiftcastStatus);
+		protected virtual bool MoveForwardAbility(IAction nextGCD, out IAction? act) { act = null; return false; }
+		protected virtual bool MoveBackAbility(IAction nextGCD, out IAction? act) { act = null; return false; }
 		protected virtual bool HealSingleAbility(IAction nextGCD, out IAction? act) { act = null; return false; }
 		protected virtual bool DefenseAreaAbility(IAction nextGCD, out IAction? act) { act = null; return false; }
 		protected virtual bool DefenseSingleAbility(IAction nextGCD, out IAction? act) { act = null; return false; }

@@ -11,10 +11,47 @@ using System.Text.Json;
 using FightSim;
 using RotationSolver.Basic.Configuration.RotationConfig;
 using RotationSolver.Basic.Rotations;
+using RotationSolver.RebornRotations.Magical;
 using RotationSolver.RebornRotations.Ranged;
 
 CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
 CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
+
+if (args.Contains("--check-mch-pandora-buff-queen"))
+{
+	MchPandoraBuffQueenCheck.Run();
+	return 0;
+}
+
+if (args.Contains("--check-mch-pandora-final-field"))
+{
+	MchPandoraFinalFieldCheck.Run();
+	return 0;
+}
+
+if (args.Contains("--check-mch-ct-barrel"))
+{
+	MchCtBarrelCheck.Run();
+	return 0;
+}
+
+if (args.Contains("--check-mch-early-barrel"))
+{
+	MchEarlyBarrelCheck.Run();
+	return 0;
+}
+
+if (args.Contains("--check-mch-relativity-barrel"))
+{
+	MchRelativityBarrelCheck.Run();
+	return 0;
+}
+
+if (args.Contains("--check-mch-pandora-wildfire"))
+{
+	MchPandoraWildfireCheck.Run();
+	return 0;
+}
 
 if (args.Contains("--check-mch-preparation"))
 {
@@ -107,9 +144,9 @@ if (args.Contains("--check-brd-model"))
 var crit = timeline.Stats.GetValueOrDefault("crit", 0.2f);
 var dh = timeline.Stats.GetValueOrDefault("dh", 0.2f);
 var jobName = timeline.Job ?? "BRD";
-var rotationType = typeof(BRD_Plan).Assembly.GetTypes().First(t => t.Name == (Opt("--rotation") ?? (jobName == "MCH" ? nameof(MCH_Plan) : nameof(BRD_Plan))));
-IJob NewJob() => jobName == "MCH" ? new Machinist(crit, dh) : new Bard(crit, dh);
-Game.BaseGcd = jobName == "MCH" ? 2.50f : 2.48f; // measured from the logs' GCD gaps
+var rotationType = typeof(BRD_Plan).Assembly.GetTypes().First(t => t.Name == (Opt("--rotation") ?? (jobName == "MCH" ? nameof(MCH_Plan) : jobName == "BLM" ? nameof(BLM_SyncPlus) : nameof(BRD_Plan))));
+IJob NewJob() => jobName == "MCH" ? new Machinist(crit, dh) : jobName == "BLM" ? new BlackMage(crit, dh, timeline) : new Bard(crit, dh);
+Game.BaseGcd = float.Parse(Opt("--gcd") ?? (jobName == "MCH" ? "2.50" : jobName == "BLM" ? "2.41" : "2.48")); // measured from the logs' GCD gaps
 Console.WriteLine($"{timeline.Source} {timeline.Player} {jobName} {rotationType.Name}: {timeline.Duration:F0}s, crit {crit:P1} DH {dh:P1}, {timeline.PlanWindows.Count} plan windows");
 
 var config = File.Exists(configPath) ? JsonDocument.Parse(File.ReadAllText(configPath)).RootElement : default;
@@ -130,7 +167,14 @@ for (var seed = seedStart; seed < seedStart + seeds; seed++)
 	Game.Reset(timeline, NewJob(), seed);
 	var rotation = (CustomRotation)Activator.CreateInstance(rotationType)!;
 	ApplyConfig(rotation, jobName, rotationType.FullName!);
-	Driver.Run(rotation, seed, replayUtilities && jobName == "BRD");
+	if (args.Contains("--manafont-unblocked") && jobName == "BLM") BlackMageRotation.ManafontPvE.Setting.StatusProvide = null; // experiment: Manafont no longer refuses while Thunderhead is held
+	foreach (var set in args.Where(x => x.Contains('=') && !x.StartsWith("--"))) // NAME=value: a rotation setting for this run
+	{
+		var prop = rotation.GetType().GetProperty(set.Split('=')[0], BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!;
+		prop.SetValue(rotation, prop.PropertyType.IsEnum ? Enum.Parse(prop.PropertyType, set.Split('=')[1]) : Convert.ChangeType(set.Split('=')[1], prop.PropertyType, CultureInfo.InvariantCulture));
+	}
+	var resources = args.Contains("--resource-report") && jobName == "MCH" ? new MchResourceReport(timeline, seed) : null;
+	Driver.Run(rotation, seed, replayUtilities && jobName == "BRD", resources == null ? null : resources.Step);
 	if (checkCtCodas && BardCtCheck.Validate(timeline, seed)) ctFinaleRuns++;
 	var byPhase = phases.Select(p => Game.DamageEvents.Where(e => e.Time >= p.Start && e.Time < p.End).Sum(e => e.Damage)).ToArray();
 	checkDamage.Add(checkWindows.Select(w => Game.DamageEvents.Where(e => e.Time >= w.Start && e.Time < w.End).Sum(e => e.Damage)).ToArray());
@@ -138,7 +182,7 @@ for (var seed = seedStart; seed < seedStart + seeds; seed++)
 	if (seedReport)
 		Console.WriteLine("SEED " + JsonSerializer.Serialize(new { seed, total = runs[^1].Total / timeline.Duration,
 			phase = byPhase, byAction = runs[^1].ByAction,
-			casts = Game.Casts.Select(c => new { time = c.Time, action = c.Action, damage = c.Damage }),
+			casts = Game.Casts.Select(c => new { time = c.Time, action = c.Action, target = c.Target, damage = c.Damage }),
 			applications = Game.DamageApplications }));
 	if (trace && seed == seedStart)
 	{
@@ -228,11 +272,11 @@ void ApplyConfig(object rotation, string job, string rotationType)
 	}
 	if (config.GetProperty("_rotationActionConfigDict").TryGetProperty(job, out var actions))
 	{
-		var jobRotation = job == "MCH" ? typeof(MachinistRotation) : typeof(BardRotation);
+		var jobRotation = job == "MCH" ? typeof(MachinistRotation) : job == "BLM" ? typeof(BlackMageRotation) : typeof(BardRotation);
 		foreach (var prop in jobRotation.GetProperties(BindingFlags.Static | BindingFlags.Public).Where(p => p.PropertyType == typeof(IBaseAction)))
 		{
 			var action = (BaseAction)prop.GetValue(null)!;
-			var gameId = job == "MCH" ? Machinist.GameId(action.ActionId) : Bard.GameId(action.ActionId);
+			var gameId = job == "MCH" ? Machinist.GameId(action.ActionId) : job == "BLM" ? BlackMage.GameId(action.ActionId) : Bard.GameId(action.ActionId);
 			if (!actions.TryGetProperty(gameId.ToString(), out var c)) continue;
 			// BaseAction.Config: a stored AoE or refresh count only stands while the rotation's default it was set against is unchanged.
 			byte? Applied(string name) => c.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetByte() : null;
@@ -309,7 +353,7 @@ internal static class Driver
 				queued = null;
 				continue;
 			}
-			if (gcd != null && (utility?.HoldGcd != true || weaves.Exhausted) && Game.GcdRemain <= Game.GcdTotal * Game.ActionAhead)
+			if (gcd != null && !Game.CastPending && (utility?.HoldGcd != true || weaves.Exhausted) && Game.GcdRemain <= Game.GcdTotal * Game.ActionAhead)
 			{
 				queued = gcd;
 				continue;

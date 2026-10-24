@@ -43,6 +43,10 @@ public interface IJob
 	void Advance(float dt);
 	void OnDeath();
 	void Execute(ActionSpec spec, IBattleChara? target, IBattleChara[] affected);
+	/// <summary>MP the game would charge for this action now (casters).</summary>
+	uint MpNeed(ActionID id) => 0;
+	/// <summary>Cast time of this press in seconds, spending what makes it instant; 0 for instant. The effect lands when the cast ends.</summary>
+	float BeginCast(ActionSpec spec) => 0f;
 	/// <summary>Damage multiplier from the job's own buffs (crit/DH expectation included), applied on top of the party's.</summary>
 	float SelfMultiplier();
 }
@@ -152,6 +156,9 @@ public static class Game
 	public static bool PotionReady => Now >= _potionReadyAt;
 	/// <summary>The player's first logged action: the log starts on the pull, the player acts a little later.</summary>
 	public static float StartAt { get; private set; }
+	/// <summary>A spell is mid-cast: its effect (gauge, statuses, MP) has not landed, so the next GCD is not chosen yet.</summary>
+	public static bool CastPending => Now < _castLandsAt;
+	private static float _castLandsAt;
 	public static bool InCombat => Now >= StartAt && Now < Timeline.Duration;
 	public static bool Locked => Timeline.PlayerDebuffs.Any(d => d.Name is "Stun" or "Deep Freeze" or "Down for the Count" or "Dead" && Now >= d.Start && Now < d.End);
 
@@ -200,7 +207,7 @@ public static class Game
 		Enemies = timeline.Actors.Select(a => new Enemy(a, id++)).ToList();
 		// Older (BRD-only) timelines have no party list: the jobs seen buffing, plus the player's own.
 		PartyJobs = timeline.PartyJobs ?? timeline.PartyBuffs.Select(b => b.Job).Distinct().Append(job.Abbr).Distinct().ToList();
-		_gcdReadyAt = _gcdTotal = _lockUntil = _potionReadyAt = _nextAuto = 0f;
+		_gcdReadyAt = _gcdTotal = _lockUntil = _potionReadyAt = _nextAuto = _castLandsAt = 0f;
 		_targetCursor = 0;
 		_lastActionAt = -1e9f;
 		LastAction = LastGcd = LastAbility = null;
@@ -454,10 +461,11 @@ public static class Game
 		}
 		var baseAction = (BaseAction)action;
 		var spec = Job.Spec(Job.Adjusted(baseAction.ActionId));
+		var cast = Job.BeginCast(spec);
 		if (spec.IsGcd)
 		{
 			_gcdTotal = spec.GcdRecast > 0 ? spec.GcdRecast : (float)Math.Round(BaseGcd * Job.HasteFactor, 2);
-			_gcdReadyAt = Now + _gcdTotal;
+			_gcdReadyAt = Now + Math.Max(_gcdTotal, cast); // a cast longer than the recast holds the next GCD until it ends
 			LastGcd = action;
 		}
 		else
@@ -465,14 +473,21 @@ public static class Game
 			LastAbility = action;
 		}
 		if (!(spec.IsGcd && spec.Recast == 0)) Cooldown(spec.Id).Use();
-		_lockUntil = Now + AnimationLockSeconds;
+		_lockUntil = Now + (cast > 0f ? Math.Max(0f, cast - 0.5f) : AnimationLockSeconds); // slidecast: a weave fits the last 0.5s of a cast
 		var target = baseAction.Target.Target;
 		Casts.Add((Now, spec.Id.ToString(), target == null || target == Player ? null : Enemies.First(e => e.Chara == target).Actor.Key, 0));
-		_applicationCast = Casts.Count - 1;
-		_applicationAction = spec.Id.ToString();
-		_applicationTargets = baseAction.Target.AffectedTargets ?? (target == null ? [] : [target]);
-		try { Job.Execute(spec, target, _applicationTargets); }
-		finally { _applicationCast = -1; _applicationAction = ""; _applicationTargets = []; }
+		var castIndex = Casts.Count - 1;
+		var targets = baseAction.Target.AffectedTargets ?? (target == null ? [] : [target]);
+		void Land()
+		{
+			_applicationCast = castIndex;
+			_applicationAction = spec.Id.ToString();
+			_applicationTargets = targets;
+			try { Job.Execute(spec, target, targets); }
+			finally { _applicationCast = -1; _applicationAction = ""; _applicationTargets = []; }
+		}
+		if (cast > 0f) { _castLandsAt = Now + cast; _applications.Enqueue(Land, (Now + cast, ++_applicationSequence)); }
+		else Land();
 	}
 
 	/// <summary>Expected damage now, in potency units: party buffs from the log times the job's own multiplier.</summary>
@@ -500,7 +515,6 @@ public static class Game
 
 	public static void Hit(IBattleChara target, float potency, string name, float? snapshot = null)
 	{
-		if (!Hostiles.Contains(target)) return;
 		var enemy = Enemies.Find(e => e.Chara == target);
 		var damage = potency * (snapshot ?? Multiplier(target)) * (enemy?.Actor.Taken ?? 1f);
 		var castIndex = snapshot == null && name != "Shot" ? _applicationCast >= 0 ? _applicationCast

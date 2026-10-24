@@ -11,13 +11,18 @@ internal static class FRUPad
 	private const uint FatebreakerEnrage = 40128;
 
 	// ponytail: before the cast bar shows, the phase end is assumed at 160s of combat; measured 158.2-160.9.
-	internal static bool Padding(IBattleChara? target, float combatTime)
+	internal static bool Padding(IBattleChara? target, float combatTime, float lookAhead = 0f)
 	{
-		if (!DataCenter.IsInFRU || target is not { BaseId: FatebreakerId } fb || fb.GetHealthRatio() > 0.05f) return false;
+		if (!DataCenter.IsInFRU || target is not { BaseId: FatebreakerId } fb) return false;
+		var hp = fb.GetHealthRatio();
+		if (lookAhead <= 0f && hp > 0.05f) return false;
+		var ttk = RecentTtk(fb);
+		var untilThreshold = hp > 0.05f ? ttk * (1f - 0.05f / hp) : 0f;
+		if (!(untilThreshold >= 0f && untilThreshold <= lookAhead)) return false;
 		var endIn = fb.IsCasting && fb.CastActionId == FatebreakerEnrage
 			? fb.TotalCastTime - fb.CurrentCastTime
 			: Math.Max(160f - combatTime, 9.7f);
-		return ShouldPad(endIn, RecentTtk(fb));
+		return ShouldPad(endIn - untilThreshold, ttk - untilThreshold);
 	}
 
 	/// <summary>

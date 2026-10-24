@@ -285,3 +285,43 @@ omitting the property compiles the current production source. No live configurat
 
 Exploration used seeds 0–19. Validation used separate seeds 200–399 on each clear, with CT/Coda, utility and weave checks.
 Results, immutable snapshots and a reproducible comparison script are under `artifacts/brd-damage-optimize-20261016/`.
+
+## Black Mage (2026-10-21)
+
+`BlackMage.cs` models a level 100 single-target BLM (AoE spells are refused). Cast times land at cast end (`Game.CastPending` holds the next GCD
+until then); damage uses per-action units taken from the log itself (median hit, luck and party buffs divided out), so Sim vs Log differ only in
+casts, timing and buffs. The log column leaves out Flare and Foul (AoE-only). Timelines: `fru-blm-*.json` (top-3 FRU BLM kills).
+
+```powershell
+dotnet run --project tests/FightSim -c Release -- tests/FightSim/timelines/fru-blm-qf3-260.json --gcd 2.407 [--rotation BLM_Default] [--manafont-unblocked] [LogBurstReport=true]
+```
+
+`--gcd` is the log's measured GCD (2.407 / 2.454 / 2.447). `NAME=value` sets a rotation property; `FIGHTSIM_LOG=1` prints the Sync scheduler log.
+Not modelled: movement (sim never moves), AoE, Retrace. P4 is dominated by add AoE in the logs, so compare phases other than P4.
+Measured from the top log: Thunderhead is held until Thunder spends it and returns ~5s later; ice spells restore 2500/5000/10000 MP by the UI stack
+before the cast; Transpose AF -> UI1 and UI -> AF1.
+
+
+### MCH phase-transition sensitivity
+
+`--resource-report` records actual carried Heat, Battery, active Queen, statuses, tool charges and cooldowns at P1/P2/crystal boundaries. It uses the existing production driver without resetting resources between phases.
+
+```powershell
+python tests/FightSim/mch_transition_matrix.py --dll <FightSim.dll> --source <raw-timeline.json> --output <results-directory> --lifetime death
+python tests/FightSim/verify_mch_transitions.py <results-directory> --strict-crystals
+```
+
+The default grid crosses six P1 endings (140/145/150/155/158/160 seconds), five crystal lifetime multipliers (0.6/0.8/1/1.2/1.4), and paired-crystal versus all-crystal changes. P1 mechanics remain on their original clock; later phases shift with the kill. Party cooldowns and simultaneous debuff applications are preserved. Crystal focus stays on the chosen target until its disappearance; the normal replay fallback then chooses another target. Use `--lifetime last-hit` for a conservative sensitivity bound and `death` for the recorded death boundary (zero HP can still remove a target earlier). These are counterfactual fixed-party inputs, not forecasts of actual party kill times or live damage. The verifier checks P2 funding, full Hypercharge execution across entry, six-hit Wildfire, buffed FMF and an unstalled opening; it separately reports every crystal Wildfire's damage outcome.
+
+
+### MCH P4/P5 model and scheduling regression checks (2026-10-23)
+
+The MCH model uses official secondary multipliers: Chain Saw/Excavator/Full Metal Field75%, Double Check/Checkmate70%. FMF preserves Reassemble. `--check-mch-queen` checks the damage ratios and P4 cleave priority; this corrects the earlier model rather than increasing production damage.
+
+Additional production-selector checks: `--check-mch-pandora-wildfire`, `--check-mch-pandora-final-field`, `--check-mch-pandora-buff-queen`, and `--check-mch-relativity-barrel`. They cover executable late-weave handoff, terminal FMF opportunity, guarded partial Queen release, and the final legal pre-UR Barrel weave with negative cases.
+
+For same-model counterfactuals, `-p:MchRebornRotationSource=<saved MCH_Reborn.cs>` complements `-p:MchSyncRotationSource=<saved MCH_SyncPlus.cs>`. Both files are fingerprinted in check output. Run old and new production sources under the same model; do not attribute model corrections to rotation DPS gains. Full-fight comparisons remain modeled expected damage, not FFLogs rDPS.
+
+### Early FRU Barrel preparation
+
+`--check-mch-early-barrel` exercises known/open planned burst windows, target lifetime through the forecast wait and Wildfire payload, AutoBurst and phase guards, observed Absolute Zero crystal-return preparation, native token expiry, and refusal to consume free Hypercharge during targetless P1/P2 downtime. The no-plan and final-kill fallbacks remain independently authorized; unknown timing must not enable the new preparation predicate. Run the full P1/crystal timing matrix when changing this policy because earlier Barrel can change Heat/Battery carryover even if its own tokens survive.

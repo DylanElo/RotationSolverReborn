@@ -4,6 +4,7 @@
     <OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable>
     <NoWarn>CS1591;CS0414;CS0169;CS0649;CS8618;CS0108;CS0114;CS8602;CS8604;CS8600;CS8625</NoWarn>
     <BrdRotationSource Condition="'$(BrdRotationSource)' == ''">$(MSBuildThisFileDirectory)../../RotationSolver/RebornRotations/Ranged/BRD_Reborn.cs</BrdRotationSource>
+    <MchRebornRotationSource Condition="'$(MchRebornRotationSource)' == ''">$(MSBuildThisFileDirectory)../../RotationSolver/RebornRotations/Ranged/MCH_Reborn.cs</MchRebornRotationSource>
     <MchSyncRotationSource Condition="'$(MchSyncRotationSource)' == ''">$(MSBuildThisFileDirectory)../../RotationSolver/RebornRotations/Ranged/MCH_SyncPlus.cs</MchSyncRotationSource>
   </PropertyGroup>
   <ItemGroup>
@@ -15,9 +16,12 @@
     <Compile Include="../../RotationSolver/RebornRotations/Ranged/BRD_Plan.cs" Link="Prod/BRD_Plan.cs" />
     <Compile Include="../../RotationSolver/RebornRotations/FRUPad.cs" Link="Prod/FRUPad.cs" />
     <Compile Include="../../RotationSolver.Basic/Rotations/Basic/MachinistRotation.cs" Link="Prod/MachinistRotation.cs" />
-    <Compile Include="../../RotationSolver/RebornRotations/Ranged/MCH_Reborn.cs" Link="Prod/MCH_Reborn.cs" />
+    <Compile Include="$(MchRebornRotationSource)" Link="Prod/MCH_Reborn.cs" />
     <Compile Include="$(MchSyncRotationSource)" Link="Prod/MCH_SyncPlus.cs" />
     <Compile Include="../../RotationSolver/RebornRotations/Ranged/MCH_Plan.cs" Link="Prod/MCH_Plan.cs" />
+    <Compile Include="../../RotationSolver.Basic/Rotations/Basic/BlackMageRotation.cs" Link="Prod/BlackMageRotation.cs" />
+    <Compile Include="../../RotationSolver/RebornRotations/Magical/BLM_Default.cs" Link="Prod/BLM_Default.cs" />
+    <Compile Include="../../RotationSolver/RebornRotations/Magical/BLM_SyncPlus.cs" Link="Prod/BLM_SyncPlus.cs" />
     <None Include="timeline.py;gen.py;timelines/*.json" />
     <Using Include="RotationSolver.Basic" /><Using Include="RotationSolver.Basic.Actions" /><Using Include="RotationSolver.Basic.Attributes" />
     <Using Include="RotationSolver.Basic.Configuration.RotationConfig" /><Using Include="RotationSolver.Basic.Data" /><Using Include="RotationSolver.Basic.Helpers" />
@@ -26,7 +30,7 @@
   </ItemGroup>
   <Target Name="MchDecisionSourceFingerprint" BeforeTargets="GetAssemblyAttributes">
     <ItemGroup>
-      <MchProductionSource Include="$(MchSyncRotationSource);../../RotationSolver/RebornRotations/Ranged/MCH_Reborn.cs;../../RotationSolver/RebornRotations/Ranged/MCH_Plan.cs" />
+      <MchProductionSource Include="$(MchSyncRotationSource);$(MchRebornRotationSource);../../RotationSolver/RebornRotations/Ranged/MCH_Plan.cs" />
     </ItemGroup>
     <GetFileHash Files="@(MchProductionSource)" Algorithm="SHA256">
       <Output TaskParameter="Items" ItemName="MchHashedSource" />

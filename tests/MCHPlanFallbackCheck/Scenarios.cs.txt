@@ -47,7 +47,7 @@ static class Scenarios {
   var future=New(false,Burst(60));future.PartyBurstActive=true;future.FullPartyBurstActive=false;
   Check("future authored FRU burst keeps early partial buffs held",!future.SelectWildfire(out _));
   foreach(uint id in new uint[]{0x45A7,0x45A9,0x45AB}){
-   var phase=New(false,Burst(60));DataCenter.IsInFRU=true;phase.SchedulerTarget!.BaseId=id;
+   var phase=New(false,Burst(15));DataCenter.IsInFRU=true;phase.SchedulerTarget!.BaseId=id;
    Check($"FRU phase {id:X} independent Barrel remains allowed without live buffs",phase.BarrelAllowed());
    Check($"FRU phase {id:X} independent Barrel does not release Wildfire",!phase.SelectWildfire(out _));
   }

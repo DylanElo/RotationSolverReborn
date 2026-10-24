@@ -85,6 +85,8 @@ public class MCH_SyncPlus : MCH_Reborn
 	protected bool PadFatebreaker { get; set; } = true;
 
 	private bool PaddingFatebreaker => PadFatebreaker && FRUPad.Padding(CurrentTarget, CombatTime);
+	// Admit a payload only if the existing P1 padding rule is not expected to interrupt it.
+	private bool FatebreakerPaddingWithin(float seconds) => PadFatebreaker && FRUPad.Padding(CurrentTarget, CombatTime, seconds);
 
 	[RotationConfig(CombatType.PvE, Name = "Use a second potion",
 		Section = "Potions", Order = 210,
@@ -216,7 +218,7 @@ public class MCH_SyncPlus : MCH_Reborn
 	/// </summary>
 	private bool SignificantPartyBurstActive => PartyBurstActive
 		&& MCHSyncPlusPolicy.IsSignificantPartyBurst(_activeAnchorJobs, _expectedAnchorJobs);
-	private protected float OverlapWait => IsCurrentTargetBoss
+	private protected float OverlapWait => IsCurrentTargetBoss && !(DataCenter.IsInFRU && SchedulerTarget is { BaseId: 0x45A3 })
 		? MCHSyncPlusPolicy.EffectiveOverlapWait(_shortestActivePartyBuffRemaining, WildfirePayloadWindow, OverlapWaitSeconds)
 		: 0f;
 	private protected bool FullPartyBurstActive => _expectedPartyBuffsCount > 0
@@ -446,12 +448,25 @@ public class MCH_SyncPlus : MCH_Reborn
 	// cycle-1 target of 90. Gating on the anchor instead sent a synced fight down the personal
 	// !synchronizePartyBurst branch and held for 100, which blocks the 1-minute 90 Queen in any
 	// party whose buffs have not passed the significance test yet.
-	private int QueenBatteryTarget => MCHSyncPlusPolicy.QueenBatteryTarget(
-		SynchronizePartyBurst,
-		SignificantPartyBurstActive,
-		QueenOpenerRelease,
-		QueenPartyBurstPhase,
-		QueenPartyBurstCycle);
+	private int QueenBatteryTarget
+	{
+		get
+		{
+			var target = MCHSyncPlusPolicy.QueenBatteryTarget(SynchronizePartyBurst, SignificantPartyBurstActive,
+				QueenOpenerRelease, QueenPartyBurstPhase, QueenPartyBurstCycle);
+			if (!DataCenter.IsInFRU || SchedulerTarget is not { BaseId: 0x45AF }
+				|| !SynchronizePartyBurst || !SignificantPartyBurstActive || IsRobotActive
+				|| Battery < 80 || Battery >= target || !(_shortestActivePartyBuffRemaining is > 0f and <= QueenExecutionWindow)) return target;
+			// Spend a partial Pandora Queen inside live buffs, unless an imminent generator can fill her first.
+			var anchorSoon = MCHBurstActionPolicy.ShouldProtectTool(AirAnchorPvE.IsEnabled,
+				AirAnchorPvE.Info.EnoughLevelAndQuest(), AirAnchorPvE.Cooldown.WillHaveOneCharge(GCDTime(1)));
+			var sawSoon = MCHBurstActionPolicy.ShouldProtectTool(ChainSawPvE.IsEnabled,
+				ChainSawPvE.Info.EnoughLevelAndQuest(), ChainSawPvE.Cooldown.WillHaveOneCharge(GCDTime(1)));
+			var excavatorReady = MCHBurstActionPolicy.ShouldProtectTool(ExcavatorPvE.IsEnabled,
+				ExcavatorPvE.Info.EnoughLevelAndQuest(), HasExcavatorReady);
+			return anchorSoon || sawSoon || excavatorReady ? target : 80;
+		}
+	}
 
 	/// <summary>
 	/// Whether downtime prediction is actually answering AND near enough to matter right now, as
@@ -651,7 +666,7 @@ public class MCH_SyncPlus : MCH_Reborn
 		get
 		{
 			UpdateDungeonTracker();
-			return MCHSyncPlusPolicy.ShouldUseWildfire(
+			return !WaitForPandoraBarrel && !P2OpeningBuffTail && !FatebreakerPaddingWithin(WildfirePayloadWindow) && MCHSyncPlusPolicy.ShouldUseWildfire(
 				Decision.Wildfire == MCHSyncPlusBurstGate.Commit,
 				AutomaticDungeon,
 				_dungeonBossEncounter || IsCurrentTargetBoss,
@@ -660,6 +675,7 @@ public class MCH_SyncPlus : MCH_Reborn
 				WildfireTargetAllowed);
 		}
 	}
+
 
 	/// <summary>
 	/// Split out from the Wildfire gate. Holding burst and banking resources are different
@@ -713,11 +729,34 @@ public class MCH_SyncPlus : MCH_Reborn
 	// A second enemy that is dying too (the P4 pair) is not somewhere for the Queen to go.
 	private bool QueenHasNextTarget => AllHostileTargets.Any(t => t.GameObjectId != QueenTarget?.GameObjectId && !t.IsDying());
 
-	/// <summary>Same target-life guard as Wildfire, unless another enemy is left to take the Hypercharge (M3 logs: Barrel at the kill).</summary>
-	protected override bool ShouldHoldBarrel => (TargetEndsBeforeWildfirePayload || TargetDying)
+	/// <summary>Preserve target life except when a bounded UR preparation carries Barrel's tokens through the stun.</summary>
+	private bool P2OpeningBuffTail => DataCenter.IsInFRU && SchedulerTarget is { BaseId: 0x459F }
+		&& PartyBurstActive && _partyBurstStartedAt >= 0f && _partyBurstStartedAt < _lastAttackableQueenPhaseStartedAt
+		&& _shortestActivePartyBuffRemaining < WildfirePayloadWindow;
+
+	protected override bool ShouldHoldBarrel => P2OpeningBuffTail || FatebreakerPaddingWithin(WildfirePayloadWindow) || !PrepareBarrelBeforeRelativity && (TargetEndsBeforeWildfirePayload || TargetDying)
 		&& !AllHostileTargets.Any(t => t != SchedulerTarget && !t.IsDying())
 		// Final kill: Full Metal Field lands on the next GCD, at most one GCD away.
 		&& !(FinalKillIn >= GCDTime(1));
+
+	// Prepare the 30s tokens ahead of buffs; the payload still follows the live burst.
+	private protected virtual float? BarrelPreparationIn => SecondsUntilExpectedPartyBurst;
+	private float PreparedBarrelPayloadIn => WildfirePayloadWindow + Math.Max(
+		PartyBurstActive ? 0f : Math.Max(0f, BarrelPreparationIn ?? 0f),
+		WildfirePvE.IsEnabled ? Math.Max(0f, WildfirePvE.Cooldown.RecastTimeRemain) : 0f);
+	private bool PrepareBarrelForBurst => IsBurst && DataCenter.IsInFRU && HasHostilesInRange && SchedulerTarget is { } && !HasWildfire
+		&& !ReserveBurst && !ObjectiveBanked && !ShouldHoldBarrel && !DowntimeWithin(PreparedBarrelPayloadIn)
+		&& TargetTimeLeft >= PreparedBarrelPayloadIn
+		// Pandora's opener: Barrel ~5s into the live buffs, so its next use follows Pandora's Box.
+		&& (SchedulerTarget is { BaseId: 0x45AF } ? PartyBurstActive && EncounterTime - _partyBurstStartedAt >= 4f
+			: PartyBurstActive || BarrelPreparationIn is >= 0f and <= 20f);
+
+	// A ready Barrel before UR's short Stun moves P4/CT forward too; its tokens must cover the return.
+	private bool PrepareBarrelBeforeRelativity => IsBurst && DataCenter.IsInFRU
+		&& SchedulerTarget is { BaseId: 0x45A7 } && !ObjectiveBanked && !TargetDying
+		&& TimelineAvailable && DowntimeIn is > 0f and <= WildfirePayloadWindow
+		&& BMRDowntimeEndIn is > 0f and <= 20f && SecondsUntilExpectedPartyBurst is > 0f and <= 25f;
+	protected override bool CanPrepareBarrelBeforeDowntime => PrepareBarrelBeforeRelativity;
 
 	/// <summary>
 	/// FRU P3/P4: Barrel goes on cooldown ahead of the buffs so it is back for the CT downtime Barrel (top MCH logs: P3 ~8:10,
@@ -727,7 +766,9 @@ public class MCH_SyncPlus : MCH_Reborn
 	/// </summary>
 	protected override bool ShouldUseBarrelOnCooldown => IsBurst && DataCenter.IsInFRU
 		&& SchedulerTarget is { } target && MCHSyncPlusPolicy.BarrelOnCooldownPhase(target.BaseId)
-		&& !ObjectiveBanked && !DowntimeWithin(WildfirePayloadWindow)
+		// P4's first boss can return over 30s before the pair burst. Do not expire FMF while waiting for it.
+		&& (BarrelPreparationIn is null or <= 20f or >= 110f)
+		&& !ObjectiveBanked && (!DowntimeWithin(WildfirePayloadWindow) || PrepareBarrelBeforeRelativity)
 		// Final kill: Barrel without waiting for a Wildfire commit, while Full Metal Field still lands.
 		|| IsBurst && FinalKillIn >= GCDTime(1) && FinalKillWithin(FinalKillDumpWindow);
 
@@ -739,10 +780,13 @@ public class MCH_SyncPlus : MCH_Reborn
 
 	private float QueenLifetimeFloor => FinalShortQueen ? FinalQueenLifetime : RequiredQueenLifetime;
 	// Battery carries into the next phase, so a phase end is never a "last chance" Queen.
+	// Pandora may use recent HP loss to release the final full Queen when whole-fight TTK lags burst damage.
 	private bool LastViableQueenWindow => (FinalShortQueen && Battery >= 50 && !IsRobotActive)
 		|| (!AutomaticDungeon || _dungeonBossEncounter) && QueenTarget is { } target && MCHSyncPlusPolicy.PhaseObjective(target.BaseId) == null
 		&& MCHSyncPlusPolicy.ShouldReleaseFinalQueen(
-		Battery, IsRobotActive, QueenTarget?.GetTTK() ?? float.NaN,
+		Battery, IsRobotActive, DataCenter.IsInFRU && target.BaseId == 0x45AF
+			&& RecentObjectiveInOf(target) is >= 0f and < float.MaxValue
+			? Math.Min(target.GetTTK(), RecentObjectiveInOf(target)) : target.GetTTK(),
 		RequiredQueenLifetime,
 		GCDTime(2) + 1f, TimelineAvailable ? DowntimeIn : float.MaxValue);
 
@@ -848,10 +892,24 @@ public class MCH_SyncPlus : MCH_Reborn
 	/// </summary>
 	private bool PendingWildfireAroundFullMetal
 		=> MCHSyncPlusPolicy.ShouldHoldHyperchargeForFullMetalWildfire(
-			HasFullMetalMachinist || IsLastGCD(false, FullMetalFieldPvE),
+			HasFullMetalMachinist || IsLastGCD(false, FullMetalFieldPvE) || PendingPandoraFallbackWildfire,
 			ShouldUseWildfire,
 			WildfirePvE.Cooldown.HasOneCharge && WildfirePvE.CanUse(out _, skipTTKCheck: true),
 			CanStartWildfirePayload);
+
+	// Keep the pre-Stun CT Barrel's next payload together when it fits inside the remaining P5 buffs.
+	private bool WaitForPandoraBarrel => IsBurst && DataCenter.IsInFRU && SchedulerTarget is { BaseId: 0x45AF }
+		&& PartyBurstActive && !HasWildfire && !HasFullMetalMachinist && BarrelStabilizerPvE.IsEnabled
+		&& BarrelStabilizerPvE.Cooldown.IsCoolingDown && BarrelStabilizerPvE.Cooldown.RecastTimeRemain is > 0f and <= 5f
+		&& !FinalKillDumping && TargetTimeLeft >= BarrelStabilizerPvE.Cooldown.RecastTimeRemain + WildfirePayloadWindow
+		&& _shortestActivePartyBuffRemaining >= BarrelStabilizerPvE.Cooldown.RecastTimeRemain + WildfirePayloadWindow;
+
+	// A late CT Barrel can leave Pandora's live buffs without FMF; reserve the existing recovery Wildfire's late weave.
+	private bool PendingPandoraFallbackWildfire => DataCenter.IsInFRU && SchedulerTarget is { BaseId: 0x45AF }
+		&& PartyBurstActive && ShouldCommitPersonalBurst && FullMetalFieldPvE.EnoughLevel
+		&& !HasWildfire && !HasFullMetalMachinist && !IsOverheated
+		&& !TargetDying && !TargetEndsBeforeWildfirePayload
+		&& BarrelStabilizerPvE.Cooldown.ElapsedAfter(5f);
 
 	private bool CanStartWildfirePayload
 		=> HyperchargePvE.CanUse(out _, skipTTKCheck: true)
@@ -888,10 +946,10 @@ public class MCH_SyncPlus : MCH_Reborn
 			&& (Heat < 100 || (PartyBurstActive && WildfirePvE.Cooldown.HasOneCharge));
 
 	protected override bool ShouldUseHypercharge
-		=> MCHSyncPlusPolicy.ShouldUseHypercharge(
+		=> (HasWildfire || !FatebreakerPaddingWithin(HyperchargePayloadWindow)) && MCHSyncPlusPolicy.ShouldUseHypercharge(
 			// Keep the earlier phase-objective policy; P4 also reserves a paid payload for Pandora below.
 			// A capped gauge can still spend when a full Hypercharge has time to land.
-			ObjectiveCarries ? BankingTools && !(Heat == 100 && TargetTimeLeft > HyperchargePayloadWindow)
+			ObjectiveCarries ? ObjectiveBanked && !(Heat == 100 && TargetTimeLeft > HyperchargePayloadWindow)
 				// Final kill: Heat left at death is wasted; two Blazing Shots still land in 3s.
 				: TargetDying && !(FinalKillIn >= 3f),
 			HasWildfire,
@@ -901,6 +959,7 @@ public class MCH_SyncPlus : MCH_Reborn
 			Heat == 100,
 			WildfirePayloadWindowClosing,
 			ToolChargeWithinRestWindow)
+		&& !WaitForPandoraBarrel
 		&& !PendingWildfireAroundFullMetal
 		&& !BarrelHandoffPending
 		&& !ReserveHeatForPandora
@@ -952,6 +1011,21 @@ public class MCH_SyncPlus : MCH_Reborn
 	protected override bool FullMetalFieldWithoutWildfire => PartyBurstActive && HasFullMetalMachinist
 		&& !WildfirePvE.Cooldown.WillHaveOneCharge(StatusHelper.PlayerStatusTime(true, StatusID.FullMetalMachinist));
 
+	private bool FinalPandoraFieldBeforeOverheatEnds
+	{
+		get
+		{
+			if (!DataCenter.IsInFRU || SchedulerTarget is not { BaseId: 0x45AF } target
+				|| !FinalKillDumping || !HasFullMetalMachinist || !HasWildfire || !IsOverheated) return false;
+			var remaining = FinalKillIn;
+			var recent = RecentObjectiveInOf(target);
+			if (recent is >= 0f and < float.MaxValue) remaining = Math.Min(remaining, recent);
+			// Preserve FMF when finishing the remaining Blazing Shots would put its next slot after the kill.
+			return remaining > WeaponRemain
+				&& remaining <= WeaponRemain + OverheatedStacks * BlazingShotPvE.Cooldown.RecastTimeOneChargeRaw;
+		}
+	}
+
 	protected override bool ShouldUseFullMetalField
 	{
 		get
@@ -989,6 +1063,11 @@ public class MCH_SyncPlus : MCH_Reborn
 		{
 			act = null;
 			return false;
+		}
+
+		if (FinalPandoraFieldBeforeOverheatEnds && FullMetalFieldPvE.CanUse(out act, skipTTKCheck: true))
+		{
+			return true;
 		}
 
 		// A downtime Barrel's Full Metal Field opens the uptime (top FRU logs: first GCD back, 3/3 kills).
@@ -1034,7 +1113,8 @@ public class MCH_SyncPlus : MCH_Reborn
 
 		// The base rotation preserves a 1-2-3 combo before checking tool GCDs. That can turn an
 		// Air Anchor which comes ready at the queue boundary into two filler GCDs of drift.
-		if (MCHSyncPlusPolicy.ShouldPrioritizeAirAnchor(payloadPending, IsOverheated, SpreadShotPvE.CanUse(out _))
+		if (!(HasReassembled && DataCenter.IsInFRU && SchedulerTarget is { BaseId: 0x45A9 or 0x45AB })
+			&& MCHSyncPlusPolicy.ShouldPrioritizeAirAnchor(payloadPending, IsOverheated, SpreadShotPvE.CanUse(out _))
 			&& !ShouldHoldTool(AirAnchorPvE) && AirAnchorPvE.CanUse(out act))
 		{
 			return true;
@@ -1058,10 +1138,19 @@ public class MCH_SyncPlus : MCH_Reborn
 		=> StatusHelper.PlayerStatusTime(true, StatusID.FullMetalMachinist, StatusID.Hypercharged);
 
 	/// <summary>Barrel's buffs with no burst able to claim them before they expire: the downtime Barrel.</summary>
+	// Early preparation belongs to the coming burst, even before all party buffs arrive.
+	// P3 retains its separate Heat cycle; P4 live buffs claim the prepared payload for the imminent Wildfire.
+	private bool PreparedBurstBarrelAwaitsWildfire => DataCenter.IsInFRU && SchedulerTarget is { BaseId: 0x459B or 0x459F or 0x45A3 or 0x45AF or 0x45A9 or 0x45AB }
+		&& IsBurst && PartyBurstActive && WildfirePvE.Config.IsEnabled && WildfireTargetAllowed
+		&& !TargetDying && !TargetEndsBeforeWildfirePayload
+		&& WildfirePvE.Cooldown.WillHaveOneCharge(8f)
+		&& TargetTimeLeft >= WildfirePayloadWindow + Math.Max(0f, WildfirePvE.Cooldown.RecastTimeRemain);
+
 	private bool UnclaimedBarrelBuffs
-		=> (HasFullMetalMachinist || HasHypercharged) && !HasWildfire
+		=> (HasFullMetalMachinist || HasHypercharged) && !HasWildfire && !PreparedBurstBarrelAwaitsWildfire
 			&& Decision.Wildfire != MCHSyncPlusBurstGate.Commit
-			&& MCHSyncPlusPolicy.BarrelBuffsUnclaimed(BarrelBuffsLeft, SecondsUntilExpectedPartyBurst);
+			&& MCHSyncPlusPolicy.BarrelBuffsUnclaimed(BarrelBuffsLeft,
+				SchedulerTarget is { BaseId: 0x45A7 or 0x45A9 or 0x45AB } ? SecondsUntilExpectedPartyBurst : BarrelPreparationIn);
 
 	// Offensive banking margins are below the actual P2/P3 pass threshold and cannot prove an unfinished phase.
 	private bool CanPreSummonQueenInPhase
@@ -1081,7 +1170,7 @@ public class MCH_SyncPlus : MCH_Reborn
 			&& Svc.Objects.OfType<IBattleChara>().Any(t => t.BaseId == 0x459F && t.GetHealthRatio() >= 0.99f);
 
 	/// <summary>
-	/// Boss-gone actions from the top FRU logs (3/3 kills, P4 downtime ~11:35-12:26): Barrel ~15s before the boss
+	/// Boss-gone actions from the top FRU logs (3/3 kills, P4 downtime ~11:35-12:26): Barrel before the boss
 	/// returns when the next burst is a full Barrel cycle away (it is back for P5's opener, one extra Barrel per
 	/// kill). Queen may prepare a known return within the same unfinished phase. Wildfire stays buffs-only.
 	/// AttackAbility never runs without a target in range, so these live here.
@@ -1090,9 +1179,19 @@ public class MCH_SyncPlus : MCH_Reborn
 	{
 		_ = Decision;
 		var uptimeIn = BMRDowntimeEndIn;
+		var p4Downtime = DataCenter.IsInFRU && _lastAttackableQueenPhase is 0x45A9 or 0x45AB;
 		if (InCombat && !HasHostilesInRange && TimelineAvailable)
 		{
-			if (IsBurst && MCHSyncPlusPolicy.ShouldUseDowntimeBarrel(uptimeIn, SecondsUntilExpectedPartyBurst)
+			// CT Barrel ~12:18, before Return's action lock, so it is back for P5 (the P5 window is hidden until the P4 kill).
+			// BMR's CT end reads ~5.5s early, so 20s here is ~25s real: inside the 30s tokens.
+			var prepareCtBarrel = p4Downtime && _lastAttackableQueenPhaseHp > 0.05f
+				&& uptimeIn is > 0f and <= 20f && SecondsUntilExpectedPartyBurst is >= 110f;
+			// A skipped P1 burst belongs to P2's raid buffs, not its short unbuffed entry.
+			var leavingFatebreaker = DataCenter.IsInFRU && _lastAttackableQueenPhase == 0x459B && _lastAttackableQueenPhaseHp <= 0.05f;
+			// Deep Freeze ends before the crystals become targetable; Barrel needs no hostile target.
+			var prepareCrystalBarrel = DataCenter.IsInFRU && _lastAttackableQueenPhase == 0x459F
+				&& _crystalReturnAt - EncounterTime is > 0f and <= 20f && BarrelPreparationIn is >= 0f and <= 20f;
+			if (IsBurst && !leavingFatebreaker && (prepareCtBarrel || prepareCrystalBarrel || !p4Downtime && MCHSyncPlusPolicy.ShouldUseDowntimeBarrel(uptimeIn, SecondsUntilExpectedPartyBurst))
 				&& BarrelStabilizerPvE.CanUse(out act))
 			{
 				return true;
@@ -1155,7 +1254,7 @@ public class MCH_SyncPlus : MCH_Reborn
 		}
 		// The downtime Barrel's free Hypercharge, after its Full Metal Field and around the tools (top logs: ~10s
 		// into the uptime). Nothing else would release it: every Hypercharge path waits for a Wildfire not coming.
-		if (UnclaimedBarrelBuffs && HasHypercharged && !HasFullMetalMachinist && !IsOverheated
+		if (HasHostilesInRange && UnclaimedBarrelBuffs && HasHypercharged && !HasFullMetalMachinist && !IsOverheated
 			&& (!ToolChargeWithinRestWindow || BarrelBuffsLeft < GCDTime(3))
 			&& HyperchargePvE.CanUse(out act, skipTTKCheck: true))
 		{
@@ -1171,6 +1270,15 @@ public class MCH_SyncPlus : MCH_Reborn
 			WildfireTargetEnding,
 			DowntimeWithin(1f))
 			&& DetonatorPvE.CanUse(out act, skipTTKCheck: true))
+		{
+			return true;
+		}
+
+		// Crystal filler weaves must not push Barrel past the small pre-UR preparation window one recast later.
+		var crystalBarrel = DataCenter.IsInFRU && SchedulerTarget is { BaseId: 0x45A3 }
+			&& IsBurst && PartyBurstActive && !ReserveBurst && !ShouldHoldBarrel && !DowntimeWithin(GCDTime(2));
+		if ((PrepareBarrelBeforeRelativity || crystalBarrel || PrepareBarrelForBurst
+			|| ShouldUseBarrelOnCooldown && !HasWildfire && !ShouldHoldBarrel && !DowntimeWithin(GCDTime(2))) && BarrelStabilizerPvE.CanUse(out act))
 		{
 			return true;
 		}
@@ -1275,7 +1383,13 @@ public class MCH_SyncPlus : MCH_Reborn
 			// target - the payload expires unspent. Detonator has not fired in any logged pull, so
 			// this path had no live evidence either way.
 			if (target?.HasStatus(true, StatusID.Wildfire, StatusID.Wildfire_1323) != true) return false;
+			// Once focus leaves a crystal, further single-target weaponskills no longer build its Wildfire.
+			if (DataCenter.IsInFRU && target.BaseId == 0x45A3 && SchedulerTarget?.GameObjectId != target.GameObjectId) return true;
 			if (target.GetTTK() <= 1f) return true;
+			// Near a crystal kill, take an available weave once death is predicted before detonation.
+			var wildfireLeft = target.StatusTime(true, StatusID.Wildfire, StatusID.Wildfire_1323);
+			if (DataCenter.IsInFRU && target.BaseId == 0x45A3 && target.GetHealthRatio() <= 0.20f
+				&& (target.GetTTK() < wildfireLeft || RecentObjectiveInOf(target) < wildfireLeft)) return true;
 			// GetTTK lags ~2s, so crystals died 0.1-0.9s before the detonation and it hit nothing
 			// (8 of 49 logged crystal Wildfires). The recent rate sees the death in time.
 			return MCHSyncPlusPolicy.ShouldDetonateEarly(RecentObjectiveInOf(target),
@@ -1353,6 +1467,7 @@ public class MCH_SyncPlus : MCH_Reborn
 			_absoluteZeroCastEnd = -1f;
 			_crystalReturnAt = -1f;
 			_lastAttackableQueenPhase = 0;
+			_lastAttackableQueenPhaseStartedAt = -1f;
 			_lastAttackableQueenPhaseObjectId = 0;
 			_lastAttackableQueenPhaseHp = float.NaN;
 			_lastRotationState = string.Empty;
@@ -1379,6 +1494,7 @@ public class MCH_SyncPlus : MCH_Reborn
 			_absoluteZeroCastEnd = -1f;
 			_crystalReturnAt = -1f;
 			_lastAttackableQueenPhase = 0;
+			_lastAttackableQueenPhaseStartedAt = -1f;
 			_lastAttackableQueenPhaseObjectId = 0;
 			_lastAttackableQueenPhaseHp = float.NaN;
 		}
@@ -1393,6 +1509,7 @@ public class MCH_SyncPlus : MCH_Reborn
 			if (phaseTarget.BaseId != _lastAttackableQueenPhase) _queenGeneratorHoldStartedAt = -1f;
 			if (phaseTarget.BaseId != _lastAttackableQueenPhase || phaseTarget.GameObjectId != _lastAttackableQueenPhaseObjectId)
 			{
+				_lastAttackableQueenPhaseStartedAt = encounterTime;
 				_absoluteZeroCastEnd = -1f;
 				_crystalReturnAt = -1f;
 			}
@@ -1804,6 +1921,7 @@ public class MCH_SyncPlus : MCH_Reborn
 	private float _absoluteZeroCastEnd = -1f;
 	private float _crystalReturnAt = -1f;
 	private uint _lastAttackableQueenPhase;
+	private float _lastAttackableQueenPhaseStartedAt = -1f;
 	private ulong _lastAttackableQueenPhaseObjectId;
 	private float _lastAttackableQueenPhaseHp = float.NaN;
 
