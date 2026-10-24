@@ -747,8 +747,8 @@ public class MCH_SyncPlus : MCH_Reborn
 	private bool PrepareBarrelForBurst => IsBurst && DataCenter.IsInFRU && HasHostilesInRange && SchedulerTarget is { } && !HasWildfire
 		&& !ReserveBurst && !ObjectiveBanked && !ShouldHoldBarrel && !DowntimeWithin(PreparedBarrelPayloadIn)
 		&& TargetTimeLeft >= PreparedBarrelPayloadIn
-		// Pandora's opener: Barrel ~5s into the live buffs, so its next use follows Pandora's Box.
-		&& (SchedulerTarget is { BaseId: 0x45AF } ? PartyBurstActive && EncounterTime - _partyBurstStartedAt >= 4f
+		// Pandora's opener: Barrel with the party's first buff, not ahead of it.
+		&& (SchedulerTarget is { BaseId: 0x45AF } ? PartyBurstActive
 			: PartyBurstActive || BarrelPreparationIn is >= 0f and <= 20f);
 
 	// A ready Barrel before UR's short Stun moves P4/CT forward too; its tokens must cover the return.
