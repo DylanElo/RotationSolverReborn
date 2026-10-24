@@ -542,6 +542,10 @@ public partial class BardRotation
 	static partial void ModifyTheWardensPaeanPvP(ref ActionSetting setting)
 	{
 		setting.TargetStatusNeed = StatusHelper.PurifyPvPStatuses;
+		// The debuffs come from enemies, and a 2s Silence or 3s Bind is still worth cleansing,
+		// so neither the self-applied filter nor the two-GCD refresh margin applies.
+		setting.StatusFromSelf = false;
+		setting.CreateConfig = () => new() { StatusRefreshGcdCount = 0 };
 		setting.IsFriendly = true;
 		setting.TargetType = TargetType.Dispel;
 	}

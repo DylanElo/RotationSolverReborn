@@ -477,6 +477,16 @@ public partial class MachinistRotation
 		setting.IgnoreGuard = true;
 	}
 
+	// 10,000 potency on a 16s recast that strikes twice on a lone target; the default AoeCount of 3
+	// would keep it from ever firing in 1v1.
+	static partial void ModifyScattergunPvP(ref ActionSetting setting)
+	{
+		setting.CreateConfig = () => new ActionConfig()
+		{
+			AoeCount = 1,
+		};
+	}
+
 	static partial void ModifyBioblasterPvP(ref ActionSetting setting)
 	{
 		setting.StatusNeed = [StatusID.BioblasterPrimed];

@@ -74,6 +74,13 @@ public sealed class MCH_DefaultPvP : MachinistRotation
 	#endregion
 
 	#region GCDs
+	// The tools are a strict chain: Drill -> Bioblaster -> Air Anchor -> Chain Saw -> Drill, each only
+	// usable under the previous one's Primed status, so exactly one is castable at a time.
+	private bool PrimedTool(out IAction? action)
+		=> DrillPvP.CanUse(out action, usedUp: true)
+		|| AirAnchorPvP.CanUse(out action, usedUp: true)
+		|| ChainSawPvP.CanUse(out action, usedUp: true);
+
 	protected override bool GeneralGCD(out IAction? action)
 	{
 		if (FullMetalFieldPvP.CanUse(out action))
@@ -81,30 +88,28 @@ public sealed class MCH_DefaultPvP : MachinistRotation
 			return true;
 		}
 
+		// Analysis is spent on the next tool, so cash it in before Blazing Shot. If the tool can't be
+		// cast (range, target swap) we fall through instead of letting Analysis block Overheated.
+		if (StatusHelper.PlayerHasStatus(true, StatusID.Analysis) && PrimedTool(out action))
+		{
+			return true;
+		}
+
 		if (BlazingShotPvP.CanUse(out action))
 		{
-			if (HasOverheatedPvP && !StatusHelper.PlayerHasStatus(true, StatusID.Analysis))
+			if (HasOverheatedPvP)
 			{
 				return true;
 			}
 		}
 
-		if (DrillPvP.CanUse(out action, usedUp: true))
+		if (PrimedTool(out action))
 		{
 			return true;
 		}
 
+		// Bioblaster can't be skipped (it primes Air Anchor), but it never gets Analysis.
 		if (BioblasterPvP.CanUse(out action, usedUp: true))
-		{
-			return true;
-		}
-
-		if (AirAnchorPvP.CanUse(out action, usedUp: true))
-		{
-			return true;
-		}
-
-		if (ChainSawPvP.CanUse(out action, usedUp: true))
 		{
 			return true;
 		}
