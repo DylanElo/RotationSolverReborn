@@ -297,7 +297,7 @@ public partial class BlackMageRotation
 
 	static partial void ModifyManafontPvE(ref ActionSetting setting)
 	{
-		setting.StatusProvide = [StatusID.Thunderhead];
+		// Not StatusProvide=Thunderhead: Thunderhead is held until Thunder spends it, so that check refused Manafont almost always.
 		setting.UnlockedByQuestID = 66609;
 		setting.IsFriendly = true;
 	}
