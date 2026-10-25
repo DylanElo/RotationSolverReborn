@@ -284,9 +284,13 @@ public sealed class SAM_SyncPlus : SAM_Reborn
 			DowntimeIn,
 			Kenki);
 
+	// Commit also means "no reason to wait", so a pot needs live buffs or a ready Ikishoten.
+	private bool MedicineBurstOpportunity => PartyBurstActive || IkishotenPvE.Cooldown.HasOneCharge;
+
 	private bool ShouldUseBurstMedicine
-		=> SAMSyncPlusPolicy.ShouldUseSecondMedicine(UseSecondBurstMedicine, SecondMedicineTime, EncounterTime, Decision.Burst);
-	protected override bool AllowBurstMedicine => SAMSyncPlusPolicy.AllowMedicine(
+		=> MedicineBurstOpportunity
+		&& SAMSyncPlusPolicy.ShouldUseSecondMedicine(UseSecondBurstMedicine, SecondMedicineTime, EncounterTime, Decision.Burst);
+	protected override bool AllowBurstMedicine => MedicineBurstOpportunity && SAMSyncPlusPolicy.AllowMedicine(
 		ShouldCommitPersonalBurst, EncounterTime, UseSecondBurstMedicine, SecondMedicineTime);
 
 	protected override bool CanUseReadyAction(IBaseAction action, out IAction? act,
@@ -374,6 +378,10 @@ public sealed class SAM_SyncPlus : SAM_Reborn
 		_ = Decision;
 		if (!TendoSetsugekkaPvE.EnoughLevel || NumberOfHostilesInRange >= 3)
 			return base.GeneralGCD(out act);
+
+		// A Goken echo stays ready after the pack drops below three; the cycle below only knows Setsugekka echoes.
+		if (CanUseReadyAction(TendoKaeshiGokenPvE, out act, skipAoeCheck: true)) return true;
+		if (CanUseReadyAction(KaeshiGokenPvE, out act, skipComboCheck: true, skipAoeCheck: true)) return true;
 
 		var higanbanaAvailable = TryUseHiganbana(out _);
 		var s = higanbanaAvailable

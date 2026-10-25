@@ -139,9 +139,9 @@ public class MCH_SyncPlus : MCH_Reborn
 	protected bool LogBurstReport { get; set; } = false;
 
 	[Range(0f, 45f, ConfigUnitType.Seconds, 1f)]
-	[RotationConfig(CombatType.PvE, Name = "Maximum Wildfire hold", Parent = nameof(AdvancedTiming),
+	[RotationConfig(CombatType.PvE, Name = "Predicted-window overshoot", Parent = nameof(AdvancedTiming),
 		Section = "Advanced", Order = 430,
-		Tooltip = "Hard ceiling for delaying a ready Wildfire while waiting for a better window.")]
+		Tooltip = "How far past a predicted raid-buff window Wildfire keeps waiting for that prediction. Not a release timer: with party sync on, Wildfire still waits for live raid buffs.")]
 	protected float MaximumWildfireHoldSeconds { get; set; } = 30f;
 
 	[Range(0f, 10f, ConfigUnitType.Seconds, 0.5f)]
@@ -2102,7 +2102,7 @@ public class MCH_SyncPlus : MCH_Reborn
 
 		if (WildfirePvE.Cooldown.HasOneCharge && WildfireHeldFor > 0f)
 		{
-			ImGui.Text($"Wildfire held for: {WildfireHeldFor:F1}s of {MaximumWildfireHoldSeconds:F0}s");
+			ImGui.Text($"Wildfire held for: {WildfireHeldFor:F1}s");
 		}
 		if (_wildfireUses.Count > 0)
 		{

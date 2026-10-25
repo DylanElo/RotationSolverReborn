@@ -276,7 +276,8 @@ public sealed class BLM_SyncPlus : BLM_Default
 
 	private bool ShouldUseBurstMedicine
 		=> BLMSyncPlusPolicy.ShouldUseOpenerMedicine(EncounterTime, HasBuffs, ReserveBurst)
-		|| BLMSyncPlusPolicy.ShouldUseSecondMedicine(UseSecondBurstMedicine, SecondMedicineTime, EncounterTime, Decision.Burst);
+		// Commit also means "no reason to wait", so the later pot needs live buffs or a ready Manafont.
+		|| (HasBuffs || BurstReady) && BLMSyncPlusPolicy.ShouldUseSecondMedicine(UseSecondBurstMedicine, SecondMedicineTime, EncounterTime, Decision.Burst);
 
 	// Sync owns Ley Lines scheduling; the parent must not retry a rejected cast.
 	protected override bool AllowAutomaticLeyLines => false;
@@ -421,6 +422,8 @@ public sealed class BLM_SyncPlus : BLM_Default
 			if (IsParadoxActive && ParadoxPvE.EnoughLevel && BlizzardPvE.CanUse(out act)) return true;
 			if (HasThunder && ThunderIiiPvE.CanUse(out act)) return true;
 			if (HasThunder && ThunderPvE.CanUse(out act)) return true;
+			// Enhanced Astral Fire (level 100, same as Flare Star) makes Despair instant.
+			if (FlareStarPvE.EnoughLevel && DespairPvE.CanUse(out act)) return true;
 			if (ScathePvE.CanUse(out act)) return true;
 
 			act = null;
