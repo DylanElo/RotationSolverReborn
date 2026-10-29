@@ -1152,6 +1152,9 @@ Check("CT return: nothing ready brings 0", 0, returnGain.Invoke(null, [false, fa
 var batteryHold = Method(policy, "ShouldHoldQueenForBatteryTarget");
 Check("CT return: 50 Battery + 60 from tools releases the target-100 hold", false, batteryHold.Invoke(null, [50, 100, 60]));
 Check("CT return: 50 Battery + 20 still holds for 100", true, batteryHold.Invoke(null, [50, 100, 20]));
+Check("90 Battery, target 100, no generator in 2 GCDs: summon (live 10-27 held 24s)", false, batteryHold.Invoke(null, [90, 100, 0]));
+Check("90 Battery, target 100, Clean Shot next: still waits for 100", true, batteryHold.Invoke(null, [90, 100, 10]));
+Check("80 Battery, target 100, no generator: still holds (gap over 10)", true, batteryHold.Invoke(null, [80, 100, 0]));
 var soloFinale = Method(assembly.GetType($"{ns}BRD_Reborn", true)!, "ShouldUseStandaloneFinale");
 Check("BRD CT Finale: 14s left before Stun, 2 Codas, BV cooling", true, soloFinale.Invoke(null, [true, 14f, 2, true]));
 Check("BRD CT Finale: 25s left would expire the buff in downtime", false, soloFinale.Invoke(null, [true, 25f, 3, true]));

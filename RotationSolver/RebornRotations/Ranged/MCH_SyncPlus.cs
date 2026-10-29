@@ -2575,7 +2575,11 @@ internal static class MCHSyncPlusPolicy
 	/// </summary>
 	internal static bool ShouldHoldQueenForBatteryTarget(
 		int battery, int batteryTarget, int projectedBatteryGain)
-		=> battery < batteryTarget && battery + projectedBatteryGain <= 100;
+		=> battery < batteryTarget && battery + projectedBatteryGain <= 100
+			// Within 10 of the target with no generator in the next two GCDs, the shortfall is worth
+			// less than the wait: 10 Battery is 266 potency, while the next combo finisher can sit
+			// behind a whole Overheat (live 10-27: 90 held 24s through the P2 burst for a Clean Shot).
+			&& !(projectedBatteryGain == 0 && batteryTarget - battery <= 10);
 
 	internal static bool ShouldReleaseFinalQueen(int battery, bool robotActive,
 		float targetRemaining, float requiredLifetime, float margin, float downtimeIn)
