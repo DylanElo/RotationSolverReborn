@@ -473,7 +473,7 @@ public class MCH_Reborn : MachinistRotation
 		// slot until 380.1s, and the Chain Saw at 379.7s overcapped for a full 20 Battery.
 		// A displaced charge is at most 180 potency and has two more charges behind it; the Queen
 		// it was delaying is 1184-2368.
-		if (UseQueen(out act, nextGCD))
+		if (!HoldQueenForWildfireWeave && UseQueen(out act, nextGCD))
 		{
 			return true;
 		}
@@ -802,6 +802,13 @@ public class MCH_Reborn : MachinistRotation
 
 		return HyperchargePvE.CanUse(out act, skipTTKCheck: true);
 	}
+
+	/// <summary>
+	/// A Queen cast spends both weave slots, so it must not take the late weave a committed Wildfire
+	/// needs ahead of Full Metal Field (live 10-31: the 60 Battery opener Queen ate it, Heat was 0
+	/// when the post-Field slot opened, and the opener Wildfire was never cast or came 5s late).
+	/// </summary>
+	protected virtual bool HoldQueenForWildfireWeave => false;
 
 	protected bool UseQueen(out IAction? act, IAction nextGCD, bool onlyToAvoidOvercap = false)
 	{

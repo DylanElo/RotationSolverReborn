@@ -906,6 +906,9 @@ public class MCH_SyncPlus : MCH_Reborn
 		&& !TargetDying && !TargetEndsBeforeWildfirePayload
 		&& BarrelStabilizerPvE.Cooldown.ElapsedAfter(5f);
 
+	protected override bool HoldQueenForWildfireWeave
+		=> HasFullMetalMachinist && !HasWildfire && Battery < 100 && PendingWildfireAroundFullMetal;
+
 	private bool CanStartWildfirePayload
 		=> HyperchargePvE.CanUse(out _, skipTTKCheck: true)
 			&& (!HasFullMetalMachinist || FullMetalFieldPvE.CanUse(out _, skipTTKCheck: true));
