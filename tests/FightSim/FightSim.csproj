@@ -8,18 +8,18 @@
     <MchSyncRotationSource Condition="'$(MchSyncRotationSource)' == ''">$(MSBuildThisFileDirectory)../../RotationSolver/RebornRotations/Ranged/MCH_SyncPlus.cs</MchSyncRotationSource>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="../../RotationSolver.Basic/Rotations/Basic/BardRotation.cs" Link="Prod/BardRotation.cs" />
-    <Compile Include="../../RotationSolver.Basic/Helpers/WeaveBudget.cs" Link="Prod/WeaveBudget.cs" />
-    <Compile Include="../../RotationSolver.Basic/Helpers/TargetAvailability.cs" Link="Prod/TargetAvailability.cs" />
+    <Compile Include="../../RotationSolver/Basic/Rotations/Basic/BardRotation.cs" Link="Prod/BardRotation.cs" />
+    <Compile Include="../../RotationSolver/Basic/Helpers/WeaveBudget.cs" Link="Prod/WeaveBudget.cs" />
+    <Compile Include="../../RotationSolver/Basic/Helpers/TargetAvailability.cs" Link="Prod/TargetAvailability.cs" />
     <Compile Include="../../RotationSolver/Updaters/PlannedMchUtilityWeave.cs" Link="Prod/PlannedMchUtilityWeave.cs" />
     <Compile Include="$(BrdRotationSource)" Link="Prod/BRD_Reborn.cs" />
     <Compile Include="../../RotationSolver/RebornRotations/Ranged/BRD_Plan.cs" Link="Prod/BRD_Plan.cs" />
     <Compile Include="../../RotationSolver/RebornRotations/FRUPad.cs" Link="Prod/FRUPad.cs" />
-    <Compile Include="../../RotationSolver.Basic/Rotations/Basic/MachinistRotation.cs" Link="Prod/MachinistRotation.cs" />
+    <Compile Include="../../RotationSolver/Basic/Rotations/Basic/MachinistRotation.cs" Link="Prod/MachinistRotation.cs" />
     <Compile Include="$(MchRebornRotationSource)" Link="Prod/MCH_Reborn.cs" />
     <Compile Include="$(MchSyncRotationSource)" Link="Prod/MCH_SyncPlus.cs" />
     <Compile Include="../../RotationSolver/RebornRotations/Ranged/MCH_Plan.cs" Link="Prod/MCH_Plan.cs" />
-    <Compile Include="../../RotationSolver.Basic/Rotations/Basic/BlackMageRotation.cs" Link="Prod/BlackMageRotation.cs" />
+    <Compile Include="../../RotationSolver/Basic/Rotations/Basic/BlackMageRotation.cs" Link="Prod/BlackMageRotation.cs" />
     <Compile Include="../../RotationSolver/RebornRotations/Magical/BLM_Default.cs" Link="Prod/BLM_Default.cs" />
     <Compile Include="../../RotationSolver/RebornRotations/Magical/BLM_SyncPlus.cs" Link="Prod/BLM_SyncPlus.cs" />
     <None Include="timeline.py;gen.py;timelines/*.json" />

@@ -573,7 +573,7 @@ Check("an unlearned party cadence does not hold Reassemble", false,
 
 // Reproduce the post-Excavator handoff: Drill is usable while the combo is entering preservation.
 var selectReassembledTool = Method(burstActionPolicy, "SelectReassembledTool");
-var actionIds = AssemblyLoadContext.Default.LoadFromAssemblyName(new AssemblyName("RotationSolver.Basic"))
+var actionIds = AssemblyLoadContext.Default.LoadFromAssemblyName(new AssemblyName("RotationSolver"))
 	.GetType("RotationSolver.Basic.Data.ActionID", true)!;
 uint ToolId(string name) => Convert.ToUInt32(Enum.Parse(actionIds, name));
 var airAnchorId = ToolId("AirAnchorPvE");

@@ -126,7 +126,7 @@ if (args.Length == 1)
     var assembly = AssemblyLoadContext.Default.LoadFromAssemblyPath(path);
     MethodInfo Method(string type, string method) => assembly.GetType(type, true)!.GetMethod(method, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance)!;
     var execute = Method("RotationSolver.Commands.RSCommands", "DoAction");
-    var data = AssemblyLoadContext.Default.LoadFromAssemblyPath(Path.Combine(Path.GetDirectoryName(path)!, "RotationSolver.Basic.dll"));
+    var data = AssemblyLoadContext.Default.LoadFromAssemblyPath(Path.Combine(Path.GetDirectoryName(path)!, "RotationSolver.dll"));
     var guard = data.GetType("RotationSolver.Basic.DataCenter", true)!.GetMethod("TryUseWithinWeaveLimit", BindingFlags.Static | BindingFlags.NonPublic)!;
     Check("production final execution uses tested shared guard", Calls(execute).Any(m => m.Name == guard.Name && m.DeclaringType == guard.DeclaringType));
     Check("production shared execution calls actual budget TryUse", Calls(guard).Any(m => m.Name == "TryUse" && m.DeclaringType?.Name == "WeaveBudget"));

@@ -6,6 +6,6 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="../../RotationSolver.Basic/Helpers/WeaveBudget.cs" Link="WeaveBudget.cs" />
+    <Compile Include="../../RotationSolver/Basic/Helpers/WeaveBudget.cs" Link="WeaveBudget.cs" />
   </ItemGroup>
 </Project>

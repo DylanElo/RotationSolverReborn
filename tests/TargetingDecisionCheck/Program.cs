@@ -15,18 +15,18 @@ string Read(string path) {
  }
  return File.ReadAllText(Path.Combine(root,path));
 }
-var objectText=Read("RotationSolver.Basic/Helpers/ObjectHelper.cs");
-var targetText=Read("RotationSolver.Basic/Actions/ActionTargetInfo.cs");
+var objectText=Read("RotationSolver/Basic/Helpers/ObjectHelper.cs");
+var targetText=Read("RotationSolver/Basic/Actions/ActionTargetInfo.cs");
 var objects=CSharpSyntaxTree.ParseText(objectText).GetRoot();
 var targets=CSharpSyntaxTree.ParseText(targetText).GetRoot();
 string Method(string name)=>string.Join("\n",objects.DescendantNodes().OfType<MethodDeclarationSyntax>().Where(m=>m.Identifier.Text==name).Select(m=>m.ToString()));
 var priority=Method("IsTopPriorityHostile")+Method("IsAttackable");
-var helperText=Read("RotationSolver.Basic/Helpers/TargetHelper.cs");
+var helperText=Read("RotationSolver/Basic/Helpers/TargetHelper.cs");
 var validity=CSharpSyntaxTree.ParseText(helperText).GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>().Single(m=>m.Identifier.Text=="ValidityCheck").ToString().Replace("private static bool","public static bool");
 var crystal=objects.DescendantNodes().OfType<MethodDeclarationSyntax>().SingleOrDefault(m=>m.Identifier.Text=="IsFRUCrystalPriority");
 var fields=string.Join("\n",objects.DescendantNodes().OfType<FieldDeclarationSyntax>().Where(f=>f.Declaration.Variables.Any(v=>v.Identifier.Text.StartsWith("FRUCrystal"))));
 var methods=string.Join("\n",new[]{"FindHostile","FindHostileRaw"}.Select(name=>targets.DescendantNodes().OfType<LocalFunctionStatementSyntax>().Single(m=>m.Identifier.Text==name).ToString()));
-var production="static class TargetHelper {"+validity+"} static partial class ObjectHelper {"+priority+fields+crystal+"}\nstatic class Selector { public static IBattleChara? Pick(IEnumerable<IBattleChara>? battleChara, TargetingType? commandTargeting=null) {return FindHostile();"+methods+"}}\n";
+var production="static class TargetHelper {"+validity+"} static partial class ObjectHelper {"+priority+fields+crystal+"}\nenum TargetType{Big}\nstatic partial class ObjectHelper { internal static bool IsCrucibleThirdBoardPriority(this IBattleChara b)=>false; internal static bool IsTopPriorityNamedHostile(this IBattleChara b)=>false; }\nstatic class Selector { static TargetType ToTargetType(TargetingType t)=>TargetType.Big; static bool IsSortType(TargetType t)=>false; static IBattleChara? PickByTargeting(IEnumerable<IBattleChara> c, TargetType t)=>c.FirstOrDefault(); public static IBattleChara? Pick(IEnumerable<IBattleChara>? battleChara, TargetingType? commandTargeting=null) {var effectiveType=TargetType.Big; return FindHostile();"+methods+"}}\n";
 var availability=targets.DescendantNodes().OfType<MethodDeclarationSyntax>().SingleOrDefault(m=>m.Identifier.Text=="CheckTargetAvailability");
 if(availability!=null) {
  var candidates=targets.DescendantNodes().OfType<MethodDeclarationSyntax>().Single(m=>m.Identifier.Text=="GetCanTargets");
@@ -39,7 +39,7 @@ if(availability!=null) {
  if(getCandidates.SpanStart>=rank.SpanStart) throw new Exception("Native availability must run before target priority selection");
  var command=targets.DescendantNodes().OfType<MethodDeclarationSyntax>().Single(m=>m.Identifier.Text=="FindCommandObjectTarget");
  if(command.ToString().Contains("CheckTargetAvailability")) throw new Exception("Explicit object commands must preserve their target intent");
- var policyText=Read("RotationSolver.Basic/Helpers/TargetAvailability.cs");
+ var policyText=Read("RotationSolver/Basic/Helpers/TargetAvailability.cs");
  var policy=CSharpSyntaxTree.ParseText(policyText).GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>().Single(m=>m.Identifier.Text=="CanTarget");
  production+="static class TargetAvailability {"+policy+"}\nclass NativeAvailability { readonly FakeAction action; bool IsTargetFriendly=>action.Setting.IsFriendly; public NativeAvailability(ActionID id,bool friendly=false) { action=new FakeAction {AdjustedID=(uint)id,Setting=new FakeSetting{IsFriendly=friendly}};} "+availability.ToString().Replace("private readonly bool","public bool")+"}\n";
  Console.WriteLine("SOURCE TargetAvailability "+Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(policyText))));

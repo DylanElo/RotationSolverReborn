@@ -22,7 +22,7 @@ string Read(string file) => ReadPath("RotationSolver/RebornRotations/Ranged/" + 
 var brd = CSharpSyntaxTree.ParseText(Read("BRD_Reborn")).GetRoot();
 var mch = CSharpSyntaxTree.ParseText(Read("MCH_Reborn")).GetRoot();
 var sync = CSharpSyntaxTree.ParseText(Read("MCH_SyncPlus")).GetRoot();
-var bardBase = CSharpSyntaxTree.ParseText(ReadPath("RotationSolver.Basic/Rotations/Basic/BardRotation.cs")).GetRoot();
+var bardBase = CSharpSyntaxTree.ParseText(ReadPath("RotationSolver/Basic/Rotations/Basic/BardRotation.cs")).GetRoot();
 string Members(SyntaxNode source, string owner, params string[] names)
 {
     var cls = source.DescendantNodes().OfType<ClassDeclarationSyntax>().Single(c => c.Identifier.Text == owner);

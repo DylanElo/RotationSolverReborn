@@ -2,7 +2,7 @@
 
 namespace RotationSolver.RebornRotations.Magical;
 
-[Rotation("Reborn", CombatType.PvE, GameVersion = "7.57")]
+[Rotation("Reborn", CombatType.PvE, GameVersion = "7.57", RotationType = RotationType.Reborn)]
 [SourceCode(Path = "main/RebornRotations/Magical/SMN_Reborn.cs")]
 
 public sealed class SMN_Reborn : SummonerRotation
@@ -59,6 +59,18 @@ public sealed class SMN_Reborn : SummonerRotation
 
 	[RotationConfig(CombatType.PvE, Name = "Use Physick above level 30")]
 	public bool Healbot { get; set; } = false;
+
+	[RotationConfig(CombatType.PvE, Name = "Restrict Searing Light with (Solar) Bahamut")]
+	public bool RestrictSearingLightToBahamut { get; set; } = true;
+
+	public enum OpenWindowMode : byte
+	{
+		[Description("Balance")] Balance,
+		[Description("0 GCD")] ZeroGcd,
+	}
+
+	[RotationConfig(CombatType.PvE, Name = "Opener/Burst open window")]
+	public OpenWindowMode OpenWindow { get; set; } = OpenWindowMode.ZeroGcd;
 
 	#endregion
 
@@ -164,11 +176,12 @@ public sealed class SMN_Reborn : SummonerRotation
 
 	protected override bool AttackAbility(IAction nextGCD, out IAction? act)
 	{
+		var openerBlock = OpenWindow == OpenWindowMode.Balance && CombatTime < 5f;
 		var inBigInvocation = !SummonBahamutPvE.EnoughLevel || InBahamut || InPhoenix || InSolarBahamut;
 		var inSolarUnique = DataCenter.PlayerSyncedLevel() == 100 ? !InBahamut && !InPhoenix && InSolarBahamut : InBahamut && !InPhoenix;
 		var burstInSolar = (SummonSolarBahamutPvE.EnoughLevel && InSolarBahamut) || (!SummonSolarBahamutPvE.EnoughLevel && InBahamut) || !SummonBahamutPvE.EnoughLevel;
 
-		if (burstInSolar)
+		if ((!RestrictSearingLightToBahamut || burstInSolar) && !openerBlock)
 		{
 			if (SearingLightPvE.CanUse(out act))
 			{
@@ -176,7 +189,7 @@ public sealed class SMN_Reborn : SummonerRotation
 			}
 		}
 
-		if (inBigInvocation)
+		if ((inBigInvocation && !openerBlock) || HasSearingLight)
 		{
 			if (EnergySiphonPvE.CanUse(out act))
 			{
@@ -442,6 +455,11 @@ public sealed class SMN_Reborn : SummonerRotation
 		}
 
 		if (!DreadwyrmTrancePvE.Info.EnoughLevelAndQuest() && HasHostilesInRange && AetherchargePvE.CanUse(out act))
+		{
+			return true;
+		}
+
+        if (RubyAttunement && AttunementCount != 0 && HasFurtherRuin && RuinIvPvE.CanUse(out act, skipAoeCheck: true))
 		{
 			return true;
 		}

@@ -38,15 +38,12 @@ internal static class FRUPad
 	/// </summary>
 	private static float RecentTtk(IBattleChara target)
 	{
-		foreach (var (time, hps) in DataCenter.RecordedHP) // oldest first
+		if (!TimeToKillTracker.TryGetRecent(target.GameObjectId, Environment.TickCount64, 4f, out var then, out var seconds))
 		{
-			var seconds = (float)(DateTime.Now - time).TotalSeconds;
-			if (seconds <= 4f && hps != null && hps.TryGetValue(target.GameObjectId, out var then))
-			{
-				var now = target.GetHealthRatio();
-				return seconds >= 2f && then > now ? now * seconds / (then - now) : float.NaN;
-			}
+			return float.NaN;
 		}
-		return float.NaN;
+
+		var now = target.GetHealthRatio();
+		return seconds >= 2f && then > now ? now * seconds / (then - now) : float.NaN;
 	}
 }

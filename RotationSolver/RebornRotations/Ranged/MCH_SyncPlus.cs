@@ -326,14 +326,7 @@ public class MCH_SyncPlus : MCH_Reborn
 	/// <summary>Oldest recorded HP ratio of the target from the last few seconds.</summary>
 	private static bool TryRecentHp(IBattleChara target, out float ratio, out float seconds)
 	{
-		foreach (var (time, hps) in DataCenter.RecordedHP) // oldest first
-		{
-			seconds = (float)(DateTime.Now - time).TotalSeconds;
-			if (seconds <= MCHSyncPlusPolicy.RecentTTKSpan && hps != null && hps.TryGetValue(target.GameObjectId, out ratio))
-				return true;
-		}
-		ratio = seconds = 0f;
-		return false;
+		return TimeToKillTracker.TryGetRecent(target.GameObjectId, Environment.TickCount64, MCHSyncPlusPolicy.RecentTTKSpan, out ratio, out seconds);
 	}
 
 	/// <summary>

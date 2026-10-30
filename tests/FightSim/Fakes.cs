@@ -77,6 +77,8 @@ namespace RotationSolver.Basic.Attributes
 {
 	public enum ConfigUnitType { None, Seconds, Degree, Yalms, Percent, Pixels }
 
+	public enum RotationType : byte { Reborn, Evolved }
+
 	[AttributeUsage(AttributeTargets.Class)]
 	public sealed class RotationAttribute(string name, CombatType type) : Attribute
 	{
@@ -84,6 +86,7 @@ namespace RotationSolver.Basic.Attributes
 		public CombatType Type { get; } = type;
 		public string GameVersion { get; set; } = "";
 		public string Description { get; set; } = "";
+		public RotationType RotationType { get; set; } = RotationType.Reborn;
 	}
 
 	[AttributeUsage(AttributeTargets.Class)]
@@ -139,8 +142,20 @@ namespace RotationSolver.Basic.Actions
 
 	public sealed class BaseTrait : IBaseTrait { public bool EnoughLevel => true; }
 
+	public class DotEffect
+	{
+		public float Duration { get; set; }
+		public float MaxDuration { get; set; }
+		public Func<float>? HitPotency { get; set; }
+		public Func<float>? TickPotency { get; set; }
+		public float DamageTakenBonus { get; set; }
+		public Func<float>? FillerPotency { get; set; }
+		public Func<float>? ExtraGcds { get; set; }
+	}
+
 	public sealed class ActionSetting
 	{
+		public DotEffect? Dot { get; set; }
 		public StatusID[]? StatusProvide { get; set; }
 		public StatusID[]? StatusNeed { get; set; }
 		public StatusID[]? TargetStatusProvide { get; set; }
@@ -384,6 +399,25 @@ namespace RotationSolver.Basic.Helpers
 {
 	using Dalamud.Game.ClientState.Objects.Types;
 	using RotationSolver.Basic.Actions;
+	// Sim stand-in for the production HP-history tracker: reads the sim's own HP record on the sim clock.
+	internal static class TimeToKillTracker
+	{
+		public static bool TryGetRecent(ulong id, long now, float maxSeconds, out float ratio, out float seconds)
+		{
+			foreach (var (time, hps) in Game.RecordedHP) // oldest first
+			{
+				seconds = (float)(RotationSolver.RebornRotations.DateTime.Now - time).TotalSeconds;
+				if (seconds <= maxSeconds && hps != null && hps.TryGetValue(id, out ratio))
+				{
+					return true;
+				}
+			}
+
+			ratio = seconds = 0f;
+			return false;
+		}
+	}
+
 	public static class IActionHelper
 	{
 		public static bool IsLastActionGCD() => Game.LastAction == Game.LastGcd;
@@ -515,7 +549,6 @@ namespace RotationSolver.Basic
 		public static float CalculatedActionAhead => Math.Max(0f, DefaultGCDTotal * Game.ActionAhead); // the user's Action6Head
 		public static ActionID LastComboAction => (Game.Job as FightSim.Machinist)?.LastComboAction ?? ActionID.None;
 		public static float ComboTime => (Game.Job as FightSim.Machinist)?.ComboTime ?? 0f;
-		public static IEnumerable<(RotationSolver.RebornRotations.DateTime Time, Dictionary<ulong, float>? Hps)> RecordedHP => Game.RecordedHP;
 	}
 
 	internal static class Service

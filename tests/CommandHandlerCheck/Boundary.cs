@@ -84,8 +84,8 @@ namespace RotationSolver
     {
         public static string Language = "en";
         public static string GetDescription(this UiString value) => Language + value;
-        public static string ToStateString(this StateCommandType value, JobRole role) => value.ToString();
-        public static string ToSpecialString(this SpecialCommandType value, JobRole role) => value.ToString();
+        public static string ToStateString(this StateCommandType value) => value.ToString();
+        public static string ToSpecialString(this SpecialCommandType value) => value.ToString();
     }
 }
 namespace RotationSolver.Data

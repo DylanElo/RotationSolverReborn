@@ -8,7 +8,7 @@ static class SerpentReadinessCheck
 {
     public static bool Run(string root)
     {
-        var path = Path.Combine(root, "RotationSolver.Basic/Rotations/Basic/ViperRotation.cs");
+        var path = Path.Combine(root, "RotationSolver/Basic/Rotations/Basic/ViperRotation.cs");
         var syntax = CSharpSyntaxTree.ParseText(File.ReadAllText(path)).GetRoot();
         string[] names = ["DeathRattle", "LastLash", "FirstLegacy", "SecondLegacy", "ThirdLegacy", "FourthLegacy"];
         string[] dreadActions = ["HuntersCoil", "SwiftskinsCoil", "HuntersDen", "SwiftskinsDen", "FirstGeneration", "SecondGeneration", "ThirdGeneration", "FourthGeneration"];

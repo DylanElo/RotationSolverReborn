@@ -1,6 +1,5 @@
 ﻿using Dalamud.Game.Command;
 using ECommons.DalamudServices;
-using ECommons.GameHelpers;
 using RotationSolver.Data;
 
 namespace RotationSolver.Commands
@@ -12,18 +11,18 @@ namespace RotationSolver.Commands
 		internal static void Enable()
 		{
 			Disable();
-			DataCenter.OnSpecialTypeChanged = specialType =>
-			{
-				var role = Player.Object?.ClassJob.Value.GetJobRole() ?? JobRole.None;
-				_specialString = specialType.ToSpecialString(role);
-			};
+			DataCenter.OnSpecialTypeChanged = specialType => _specialString = specialType.ToSpecialString();
+
+			var helpMessage = $"{UiString.Commands_Rotation.GetDescription()}\n"
+				+ $"{Service.COMMAND} Auto → {UiString.Commands_Start.GetDescription()}\n"
+				+ $"{Service.COMMAND} Off → {UiString.Commands_Off.GetDescription()}";
 
 			// Auto and Off are arguments handled by OnCommand, not separate command names.
 			foreach (var command in new[] { Service.COMMAND, Service.ALTCOMMAND })
 			{
 				if (Svc.Commands.AddHandler(command, new CommandInfo(OnCommand)
 				{
-					HelpMessage = UiString.Commands_Rotation.GetDescription(),
+					HelpMessage = command == Service.COMMAND ? helpMessage : $"{UiString.Commands_Rotation.GetDescription()}\n",
 					ShowInHelp = true,
 				}))
 				{
@@ -50,7 +49,6 @@ namespace RotationSolver.Commands
 		{
 			command = (command ?? string.Empty).Trim();
 
-			// No args => open config
 			if (command.Length == 0)
 			{
 				RotationSolverPlugin.OpenConfigWindow();
@@ -64,11 +62,9 @@ namespace RotationSolver.Commands
 
 			if (TryGetOneEnum<StateCommandType>(command, out var stateType))
 			{
-				// Split command into parts
 				var parts = command.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 				var index = -1;
 
-				// Try to parse the second argument as TargetingType if present
 				if (parts.Length > 1)
 				{
 					var value = parts[1];
@@ -123,11 +119,11 @@ namespace RotationSolver.Commands
 				return false;
 			}
 
-			// Parse only the first token (case-insensitive).
 			var spaceIdx = command.IndexOf(' ');
 			var token = spaceIdx >= 0 ? command[..spaceIdx] : command;
 
-			return Enum.TryParse(token, ignoreCase: true, out type);
+			return token.Length > 0 && char.IsLetter(token[0]) && !token.Contains(',')
+				&& Enum.TryParse(token, ignoreCase: true, out type) && Enum.IsDefined(type);
 		}
 
 		internal static string GetCommandStr(this Enum command, string extraCommand = "")

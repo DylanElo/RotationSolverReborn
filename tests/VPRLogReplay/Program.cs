@@ -22,15 +22,15 @@ string Members(string file, params string[] names)
     }));
 }
 const string dir = "RotationSolver/RebornRotations/Melee/";
-const string nativeFile = "RotationSolver.Basic/Rotations/Basic/ViperRotation.cs";
+const string nativeFile = "RotationSolver/Basic/Rotations/Basic/ViperRotation.cs";
 var nativeSyntax = CSharpSyntaxTree.ParseText(Read(nativeFile)).GetRoot();
-var finalKill = CSharpSyntaxTree.ParseText(Read("RotationSolver.Basic/Rotations/CustomRotation_OtherInfo.cs")).GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>().Single(m=>m.Identifier.Text=="FinalKill").ToString().Replace("internal static float FinalKill(","public static float ReplayFinalKill(");
+var finalKill = CSharpSyntaxTree.ParseText(Read("RotationSolver/Basic/Rotations/CustomRotation_OtherInfo.cs")).GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>().Single(m=>m.Identifier.Text=="FinalKill").ToString().Replace("internal static float FinalKill(","public static float ReplayFinalKill(");
 string NativeCheck(string action) {
     var method = nativeSyntax.DescendantNodes().OfType<MethodDeclarationSyntax>().Single(m=>m.Identifier.Text=="Modify"+action);
     var lambda = method.DescendantNodes().OfType<AssignmentExpressionSyntax>().Single(a=>a.Left.ToString()=="setting.ActionCheck").Right as ParenthesizedLambdaExpressionSyntax;
     return "public bool Replay"+action+"Check()=>"+lambda!.ExpressionBody!.ToString()+";";
 }
-var fingerprints = new[]{dir+"VPR_Reborn.cs",dir+"VPR_SyncPlus.cs",nativeFile,"RotationSolver.Basic/Rotations/CustomRotation_OtherInfo.cs"}.ToDictionary(p=>Path.GetFileName(p)!,p=>Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(SourcePath(p)))));
+var fingerprints = new[]{dir+"VPR_Reborn.cs",dir+"VPR_SyncPlus.cs",nativeFile,"RotationSolver/Basic/Rotations/CustomRotation_OtherInfo.cs"}.ToDictionary(p=>Path.GetFileName(p)!,p=>Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(SourcePath(p)))));
 foreach(var pair in fingerprints) Console.WriteLine(pair.Key+" SHA256 "+pair.Value);
 var production = "class Reborn : Boundary {" + Members(dir + "VPR_Reborn.cs", "GeneralGCD", "AllowReawaken", "AllowViceCombo", "AllowUncoiledFury", "PreferUncoiledFury", "SpendFuryBeforeFreeReawaken", "TryUseReawaken", "TryUseUncoiledFury", "AllowSerpentsIre", "AttackAbility", "EmergencyAbility", "TryUseViceCombo") + "}\n"
     + "class Sync : Reborn {" + Members(dir + "VPR_SyncPlus.cs", "AllowReawaken", "PackageRelease", "AllocateBeforeFree", "AllocateViceBeforeFree", "ShouldUseReawaken", "TargetDying", "TargetEndsBeforeBurstPayload", "IsCurrentTargetBoss", "PlannedBurstWindow", "AllowViceCombo", "AllowUncoiledFury", "PreferUncoiledFury", "SpendFuryBeforeFreeReawaken", "UpdateExpectedPartyBuffs", "FindDebuffCarrier", "IsPartyBuffActive", "PartyBuffRemaining", "IsAnchorWorthy", "TryUseReawaken", "TryUseUncoiledFury", "CandidateAllowsBurst", "EvaluateBurstDecision", "Decision", "ShouldCommitPersonalBurst", "ShouldHoldFlexibleResources", "GeneralGCD", "UpdateBurstTracker", "ResetPartyBurstAnchor", "SecondsInPartyBurst", "BurstHeldFor", "EmergencyAbility", "ShouldUseSelectedBurstMedicine", "AllowBurstMedicine", "AllowSerpentsIre", "ShouldUseSerpentsIre", "FinishNormalCombo", "SecondsUntilExpectedPartyBurst", "ReawakenReady", "TimingChoice", "ReawakenPayload", "ReawakenCycle", "CandidateFinalKillIn", "LearnedBurstWindows", "NormalComboRemaining", "EarnedIreCoilLoss", "EarnedViceCoilLoss", "PrioritizeEarnedGenerator", "CalculateTimingChoice", "ReawakenAdmission", "TryUseViceCombo", "AttackAbility", "NormalComboPending", "EarnedIreCoilLossAt", "BuildSnapshot", "ReserveWeaveForIre", "ShouldDelayIreToken") + "}\n";
