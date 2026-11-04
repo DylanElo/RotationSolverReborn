@@ -33,9 +33,6 @@ public sealed class SMN_Reborn : SummonerRotation
 	[RotationConfig(CombatType.PvE, Name = "Use Crimson Cyclone when moving")]
 	public bool AddCrimsonCycloneMoving { get; set; } = false;
 
-	[RotationConfig(CombatType.PvE, Name = "Use Swiftcast on ressurection")]
-	public bool AddSwiftcastOnRaise { get; set; } = true;
-
 	[RotationConfig(CombatType.PvE, Name = "Raise while in solar bahamut")]
 	public bool SBRaise { get; set; } = true;
 
@@ -71,6 +68,30 @@ public sealed class SMN_Reborn : SummonerRotation
 
 	[RotationConfig(CombatType.PvE, Name = "Opener/Burst open window")]
 	public OpenWindowMode OpenWindow { get; set; } = OpenWindowMode.ZeroGcd;
+
+	[RotationConfig(CombatType.PvE, Name = "Do not summon a new primal while attuned or holding Ifrit's/Garuda's Favor")]
+    public bool BlockSummonWhileAttunedOrFavor { get; set; } = true;
+
+	[RotationConfig(CombatType.PvE, Name = "Swiftcast for movement uptime: only use it on Ruby Rite/Slipstream while moving")]
+    public bool SwiftcastMovementUptime { get; set; } = false;
+
+	[RotationConfig(CombatType.PvE, Name = "Dynamic primal order: Ifrit if still and close, Garuda if still and far, Titan if moving (falls back to Order)")]
+    public bool DynamicSummonOrder { get; set; } = false;
+
+	public enum PotTiming : byte
+    {
+	    [Description("First Searing Light")] FirstSearingLight,
+	    [Description("From second Searing Light")] FromSecondSearingLight,
+    }
+
+    [RotationConfig(CombatType.PvE, Name = "Use potion")]
+    public bool UsePotion { get; set; } = true;
+
+    [RotationConfig(CombatType.PvE, Name = "Potion timing", Parent = nameof(UsePotion))]
+    public PotTiming PotionTiming { get; set; } = PotTiming.FirstSearingLight;
+
+    [RotationConfig(CombatType.PvE, Name = "Only use potion during a big summon (Bahamut/Phoenix/Solar Bahamut)", Parent = nameof(UsePotion))]
+    public bool LimitPotToBigSummon { get; set; } = false;
 
 	#endregion
 
@@ -156,11 +177,6 @@ public sealed class SMN_Reborn : SummonerRotation
 			{
 				return true;
 			}
-		}
-
-		if (HasSearingLight && InCombat && UseBurstMedicine(out act))
-		{
-			return true;
 		}
 
 		if (RadiantOnCooldownSpam && !IsLastAction(false, RadiantAegisPvE) && InCombat)
@@ -349,12 +365,37 @@ public sealed class SMN_Reborn : SummonerRotation
 	}
 
 	protected override bool EmergencyAbility(IAction nextGCD, out IAction? act)
-	{
+	{   
+		var potInBigSummon = !SummonBahamutPvE.EnoughLevel || InBahamut || InPhoenix || InSolarBahamut;
+
+		if (UsePotion && HasSearingLight && InCombat
+			&& (PotionTiming == PotTiming.FirstSearingLight || CombatTime > 30f)
+			&& (!LimitPotToBigSummon || potInBigSummon)
+			&& UseBurstMedicine(out act))
+		{
+			return true;
+		}
+
 		if (SwiftcastPvE.CanUse(out act))
 		{
-			if (AddSwiftcastOnRaise && nextGCD.IsTheSameTo(false, ResurrectionPvE))
+			if (Service.Config.RaisePlayerBySwift && nextGCD.IsTheSameTo(false, ResurrectionPvE))
 			{
 				return true;
+			}
+			if (SwiftcastMovementUptime && !HasSwift)
+			{
+				if (IsMoving && AttunementCount == 0 && SlipstreamPvE.CanUse(out _, skipCastingCheck: true))
+				{
+					return true;
+				}
+				if (IsMoving && RubyRitePvE.CanUse(out _, skipCastingCheck: true))
+				{
+					return true;
+				}
+				if (nextGCD.IsTheSameTo(false, RubyRitePvE, SlipstreamPvE) && !IsGarudaReady && !IsIfritReady)
+				{
+					return true;
+				}
 			}
 			if (AddSwiftcastOnLowST && !RubyRitePvE.EnoughLevel && nextGCD.IsTheSameTo(false, RubyRuinPvE, RubyRuinIiPvE, RubyRuinIiiPvE))
 			{
@@ -364,11 +405,11 @@ public sealed class SMN_Reborn : SummonerRotation
 			{
 				return true;
 			}
-			if (AddSwiftcastOnRuby && nextGCD.IsTheSameTo(false, RubyRitePvE) && !ElementalMasteryTrait.EnoughLevel)
+			if (!SwiftcastMovementUptime && AddSwiftcastOnRuby && nextGCD.IsTheSameTo(false, RubyRitePvE) && !ElementalMasteryTrait.EnoughLevel)
 			{
 				return true;
 			}
-			if (AddSwiftcastOnGaruda && nextGCD.IsTheSameTo(false, SlipstreamPvE) && ElementalMasteryTrait.EnoughLevel && !InBahamut && !InPhoenix && !InSolarBahamut)
+			if (!SwiftcastMovementUptime && AddSwiftcastOnGaruda && nextGCD.IsTheSameTo(false, SlipstreamPvE) && ElementalMasteryTrait.EnoughLevel && !InBahamut && !InPhoenix && !InSolarBahamut)
 			{
 				return true;
 			}
@@ -429,10 +470,10 @@ public sealed class SMN_Reborn : SummonerRotation
 			return true;
 		}
 
-		if (SlipstreamPvE.CanUse(out act, skipCastingCheck: AddSwiftcastOnGaruda && ((!SwiftcastPvE.Cooldown.IsCoolingDown && IsMoving) || HasSwift)))
-		{
-			return true;
-		}
+		if (SlipstreamPvE.CanUse(out act, skipCastingCheck: !SwiftcastMovementUptime && AddSwiftcastOnGaruda && ((!SwiftcastPvE.Cooldown.IsCoolingDown && IsMoving) || HasSwift)))
+        {
+	        return true;
+        }
 
 		if ((!IsMoving || AddCrimsonCycloneMoving) && CrimsonCyclonePvE.CanUse(out act) && (AddCrimsonCyclone || CrimsonCyclonePvE.Target.Target.DistanceToPlayer() <= CrimsonCycloneDistance))
 		{
@@ -464,8 +505,15 @@ public sealed class SMN_Reborn : SummonerRotation
 			return true;
 		}
 
-		if (!InBahamut && !InPhoenix && !InSolarBahamut)
-		{
+		var attunedOrFavor = AttunementCount != 0 || HasIfritsFavor || HasGarudasFavor || HasCrimsonStrikeReady;
+
+		if (!InBahamut && !InPhoenix && !InSolarBahamut && !(BlockSummonWhileAttunedOrFavor && attunedOrFavor))
+		{   
+			if (DynamicSummonOrder && DynamicSummonTime(out act))
+	        {
+		        return true;
+	        }
+			
 			switch (SummonOrder)
 			{
 				case SummonOrderType.TopazEmeraldRuby:
@@ -762,5 +810,33 @@ public sealed class SMN_Reborn : SummonerRotation
 			return base.CanHealSingleSpell && (GCDHeal || aliveHealerCount == 0);
 		}
 	}
+
+	private bool SwiftcastForMovement => SwiftcastMovementUptime && HasSwift;
+
+	private bool DynamicSummonTime(out IAction? act)
+    {
+	        act = null;
+	        var target = HostileTarget;
+	        if (target == null)
+	    {
+            return false;
+	    }
+
+	        if (IsMoving)
+	    {
+		return TitanTime(out act);
+        }
+
+        if (target.DistanceToPlayer() <= CrimsonCycloneDistance)
+        {
+            return IfritTime(out act);
+        }
+
+	return GarudaTime(out act);
+    }
+	private bool HasIfritsFavor => StatusHelper.PlayerHasStatus(true, (StatusID)2724);
+    private bool HasGarudasFavor => StatusHelper.PlayerHasStatus(true, (StatusID)2725);
+    private bool HasCrimsonStrikeReady => StatusHelper.PlayerHasStatus(true, (StatusID)4403);
+
 	#endregion
 }

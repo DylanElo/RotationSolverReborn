@@ -540,4 +540,13 @@ public partial class DarkKnightRotation
 	}
 
 	#endregion
+
+	public override bool IsBursting()
+	{
+		if (DarkSideTimeRemainingRaw > 0f)
+		{
+			return true;
+		}
+		return false;
+	}
 }
