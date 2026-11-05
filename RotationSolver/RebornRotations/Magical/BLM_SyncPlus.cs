@@ -318,11 +318,8 @@ public sealed class BLM_SyncPlus : BLM_Default
 				return true;
 			}
 
-			// If Manafont is not ready or being held, allow transpose to Ice if needed
-			if (NeedToTransposeGoIce(true) && TransposePvE.CanUse(out act))
-			{
-				return true;
-			}
+			// No Transpose to ice here: Umbral Ice 1 hard-casts Blizzard III at full cast time (MaintainIce runs
+			// before the instants that justified it), while Blizzard III from Astral Fire III casts at half.
 		}
 
 		act = null;
@@ -421,7 +418,8 @@ public sealed class BLM_SyncPlus : BLM_Default
 		{
 			if (FoulPvE.CanUse(out act, skipAoeCheck: !XenoglossyPvE.EnoughLevel)) return true;
 			if (XenoglossyPvE.CanUse(out act)) return true;
-			if (IsParadoxActive && ParadoxPvE.EnoughLevel && BlizzardPvE.CanUse(out act)) return true;
+			// Paradox replaces Fire in Astral Fire and Blizzard in Umbral Ice; Blizzard in Astral Fire is a Blizzard I hard-cast.
+			if (IsParadoxActive && ParadoxPvE.EnoughLevel && (InAstralFire ? FirePvE : BlizzardPvE).CanUse(out act)) return true;
 			if (HasThunder && ThunderIiiPvE.CanUse(out act)) return true;
 			if (HasThunder && ThunderPvE.CanUse(out act)) return true;
 			// Enhanced Astral Fire (level 100, same as Flare Star) makes Despair instant.
