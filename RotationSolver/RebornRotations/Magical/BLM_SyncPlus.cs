@@ -334,9 +334,11 @@ public sealed class BLM_SyncPlus : BLM_Default
 	{
 		_ = Decision;
 
-		if (IsMoving && HasHostilesInRange && InCombat && TriplecastPvE.CanUse(out act, usedUp: true))
+		// Movement: Swiftcast first. Its only other rule (Umbral Ice 2) never happens at level 100.
+		if (IsMoving && HasHostilesInRange && InCombat && !NextGCDisInstant)
 		{
-			return true;
+			if (SwiftcastPvE.CanUse(out act)) return true;
+			if (TriplecastPvE.CanUse(out act, usedUp: true)) return true;
 		}
 
 		if (InCombat && HasHostilesInRange && !IsMoving && LeyLinesPvE.EnoughLevel)
@@ -472,6 +474,20 @@ public sealed class BLM_SyncPlus : BLM_Default
 		}
 
 		return false;
+	}
+
+	protected override bool DoFire(out IAction? act)
+	{
+		// Spend a held Paradox (cast through FirePvE) on the last F4's MP: base DoFire prefers F4 until only
+		// Despair fits, and leaving Astral Fire III with the marker held makes a new one that overwrites it.
+		var paradoxAndDespair = FirePvE.Info.MPNeed + DespairPvE.Info.MPNeed;
+		if (IsParadoxActive && CurrentMp >= paradoxAndDespair && CurrentMp < paradoxAndDespair + FireIvPvE.Info.MPNeed
+			&& FirePvE.CanUse(out act))
+		{
+			return true;
+		}
+
+		return base.DoFire(out act);
 	}
 
 	protected override bool GoIce(out IAction? act)

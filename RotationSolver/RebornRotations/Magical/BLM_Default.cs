@@ -148,7 +148,7 @@ public class BLM_Default : BlackMageRotation
 	[RotationDesc(ActionID.TransposePvE, ActionID.LeyLinesPvE, ActionID.RetracePvE)]
 	protected override bool GeneralAbility(IAction nextGCD, out IAction? act)
 	{
-		if (IsMoving && HasHostilesInRange && InCombat && TriplecastPvE.CanUse(out act, usedUp: true))
+		if (IsMoving && HasHostilesInRange && InCombat && !NextGCDisInstant && TriplecastPvE.CanUse(out act, usedUp: true))
 		{
 			return true;
 		}
