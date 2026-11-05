@@ -1,0 +1,80 @@
+// Only external platform facts are stubbed. Scheduler admission, click cadence, execution
+// lockouts and native queue ownership are the production method bodies parsed by Program.cs.
+enum Job { ADV, MCH }
+enum EnemyPositional { None }
+enum SpecialMode { None, Pyretic }
+enum SpecialCommandType { EndSpecial }
+enum StatusID { MotionTracker, Transcendent, WaningNocturne }
+enum ConditionFlag { OccupiedInQuestEvent, OccupiedInCutSceneEvent, Occupied33, Occupied38, Jumping61, BetweenAreas, BetweenAreas51, Mounted, SufferingStatusAffliction2, RolePlaying, InFlight, Diving, Swimming, Unconscious, InThisState89, MeldingMateria }
+static class Clock { public static DateTime Now = new(2026, 10, 29, 20, 0, 0); }
+class Status { public float RemainingTime; public bool Lock; }
+class IBattleChara { public uint CurrentHp = 100; public bool IsTargetable = true; public float TotalCastTime, CurrentCastTime; public Status[] StatusList = []; }
+class ActionInfo { public bool IsRealGCD, IsAbility; }
+class ActionSetting { public bool IsMudra, EndSpecial; }
+class TargetInfo { public bool IsTargetArea; }
+interface IAction { uint ID { get; } uint AdjustedID { get; } }
+interface IBaseAction : IAction { ActionInfo Info { get; } ActionSetting Setting { get; } TargetInfo TargetInfo { get; } }
+class BaseAction : IBaseAction
+{
+    public uint ID { get; set; } = 36978;
+    public uint AdjustedID => ID;
+    public ActionInfo Info { get; set; } = new() { IsRealGCD = true };
+    public ActionSetting Setting { get; } = new();
+    public TargetInfo TargetInfo { get; } = new();
+}
+class Item : IAction { public uint ID => 49235; public uint AdjustedID => ID; }
+static class Player { public static IBattleChara? Object = new(); }
+class Conditions { public HashSet<ConditionFlag> Active = []; public bool this[ConditionFlag flag] => Active.Contains(flag); }
+class Objects { public IBattleChara? LocalPlayer => Player.Object; }
+static class Svc { public static Conditions Condition = new(); public static Objects Objects = new(); }
+static class PluginLog { public static void Warning(string value) {} public static void Verbose(string value) {} }
+class Config { public Vector2 ClickingDelay = new(.1f, .1f); public bool KeyboardNoise, EnableClickingCount, InDebug; }
+static class Service { public static Config Config = new(); }
+static class StatusHelper
+{
+    public static StatusID[] PurifyPvPStatuses = [];
+    public static HashSet<StatusID> Active = [];
+    public static bool PlayerHasStatus(bool own, params StatusID[] ids) => ids.Any(Active.Contains);
+    public static bool LockActions(Status status) => status.Lock;
+}
+static class NoCastingStatusHelper
+{
+    public static bool Active;
+    public static float Time = .2f;
+    public const float ResolveWindow = .5f;
+    public static bool PlayerHasNoCastingStatus(out float time) { time = Time; return Active; }
+}
+static class ActionHelper { public static bool CanUseGCD => DataCenter.DefaultGCDRemain <= DataCenter.CalculatedActionAhead; }
+unsafe struct ActionManager
+{
+    public bool ActionQueued;
+    public uint QueuedActionId;
+    static readonly ActionManager* instance = (ActionManager*)System.Runtime.InteropServices.NativeMemory.AllocZeroed((nuint)sizeof(ActionManager));
+    public static ActionManager* Instance() => instance;
+}
+static class DataCenter
+{
+    public static bool State = true, IsTargetOnly, IsPvP, IsInQuestBattle;
+    public static float AnimationLock, DefaultGCDRemain, CalculatedActionAhead = .375f;
+    public static SpecialMode BMRSpecialModeType;
+    public static IBaseAction? CurrentInterceptedAction;
+    public static bool WeaveBlocked, NativeAccepted = true;
+    public static int NativeCalls;
+    public static void RefreshWeaveBudget(bool hasGcd) {}
+    public static bool IsBlockedByWeaveLimit(IAction action) => WeaveBlocked;
+    public static bool TryUseWithinWeaveLimit(IAction action) { NativeCalls++; return NativeAccepted; }
+}
+static class OtherConfiguration { public static Record RotationSolverRecord = new(); }
+class Record { public int ClickingCount; }
+static class MiscUpdater { public struct ActionBarSlotRef {} }
+static partial class RSCommands
+{
+    internal static IBaseAction? CurrentAction { get; set; }
+    static void SwitchTargetForAction(IAction action) {}
+    static void DoSpecialCommandType(SpecialCommandType type, bool show) {}
+    static bool CapturePulseSlots(IAction action) => false;
+    static void PulseSimulation() {}
+    static void PulseSimulation(uint id) {}
+    static void ResetSpecial() {}
+}
+static partial class ActionUpdater { internal static IAction? NextAction; internal static IBaseAction? NextGCDAction; }

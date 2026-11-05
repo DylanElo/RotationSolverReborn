@@ -551,7 +551,8 @@ internal static class DataCenter
 	internal static WeaveBudget Weaves { get; } = new();
 	// No hostiles means no GCD to clip, and the cap only reopens on a GCD: in FRU CT it swallowed the Finale behind BMR's
 	// Troubadour + Arm's Length (10-17).
-	private static bool WeaveCapActive => InCombat && AllHostileTargets.Count > 0;
+	// PvP is exempt: its survival oGCDs (Recuperate, Guard, Purify) sat behind the 2-slot cap while no GCD was resetting it.
+	private static bool WeaveCapActive => InCombat && !IsPvP && AllHostileTargets.Count > 0;
 	internal static bool WeaveLimitReached => WeaveCapActive && Weaves.Exhausted;
 	internal static HashSet<uint> BMRReservedUtilityActions { get; } = [];
 	internal static bool BMRUtilityGcdHold { get; set; }

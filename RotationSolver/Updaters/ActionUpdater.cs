@@ -257,6 +257,12 @@ internal static class ActionUpdater
 			: Math.Min(10, (float)(now - _startAliveTime).TotalSeconds);
 	}
 
+	// UseAction supports native queuing; ground-targeted UseActionLocation does not.
+	internal static bool CanQueueGcd(IAction? action)
+		=> action is IBaseAction { Info.IsRealGCD: true, TargetInfo.IsTargetArea: false }
+			&& ActionHelper.CanUseGCD
+			&& DataCenter.AnimationLock <= Math.Min(0.5f, DataCenter.CalculatedActionAhead);
+
 	internal static bool CanDoAction()
 	{
 		if (DataCenter.IsTargetOnly)
@@ -286,12 +292,15 @@ internal static class ActionUpdater
 			return false;
 		}
 
-		if (player.TotalCastTime - DataCenter.CalculatedActionAhead > 0)
+		// Only queue-capable GCDs may enter the final cast window.
+		var castRemaining = player.TotalCastTime - player.CurrentCastTime;
+		if (castRemaining > 0 && (!CanQueueGcd(NextAction)
+			|| castRemaining > Math.Min(0.5f, DataCenter.CalculatedActionAhead)))
 		{
 			return false;
 		}
 
-		if (DataCenter.AnimationLock > 0f)
+		if (DataCenter.AnimationLock > 0f && !CanQueueGcd(NextAction))
 		{
 			return false;
 		}

@@ -30,7 +30,7 @@ public sealed class BlackMageGauge
 /// Level 100 Black Mage (7.5x), ST only (AoE spells are refused). Rules are the 7.x kit as BossMod's BLM module and the top FRU logs
 /// show them: Fire costs 800/1600 (hearts spend the doubling), Fire III is free from Firestarter or Umbral Ice, ice spells restore
 /// 2500/5000/10000 MP at Umbral Ice 1/2/3 (by the stack when cast), Astral Fire stops the MP tick, Manafont refills MP and gives
-/// 3 hearts and Paradox, Transpose flips AF3 -> UI1 / UI -> AF1, an element flip gives Paradox, six Astral Soul (Fire IV, Despair)
+/// Astral Fire III, 3 hearts and Paradox (user-confirmed 7.x: the top logs cast Fire IV right after Transpose to AF1 + Manafont), Transpose flips AF3 -> UI1 / UI -> AF1, an element flip gives Paradox, six Astral Soul (Fire IV, Despair)
 /// open Flare Star, Polyglot every 30s of Enochian, Ley Lines haste 0.85. Fire IV/Flare Star cast 2.0, Fire III 3.5 (x spell speed),
 /// halved for fire in UI3 / ice in AF3.
 /// Damage is not tooltip potency: each action's unit is the median of the logged hits on that action with luck and party buffs
@@ -263,7 +263,7 @@ public sealed class BlackMage : IJob
 				break;
 			case TransposePvE: Flip(Gauge.Element > 0 ? -1 : 1); break;
 			case ManafontPvE:
-				Mp = 10000f; Gauge.UmbralHearts = 3; Gauge.Paradox = true; p.Statuses[StatusID.Thunderhead] = 999f; break;
+				Mp = 10000f; Gauge.Element = 3; _elementLeft = 15f; Gauge.UmbralHearts = 3; Gauge.Paradox = true; p.Statuses[StatusID.Thunderhead] = 999f; break;
 			case AmplifierPvE: Gauge.Polyglot = (byte)Math.Min(3, Gauge.Polyglot + 1); break;
 			case LeyLinesPvE: p.Statuses[StatusID.LeyLines] = 30f; p.Statuses[StatusID.CircleOfPower] = 30f; break;
 			case TriplecastPvE: p.Statuses[StatusID.Triplecast] = 15f; p.Stacks[StatusID.Triplecast] = 3; break;

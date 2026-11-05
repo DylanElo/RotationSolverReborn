@@ -47,13 +47,16 @@ namespace RotationSolver.Commands
 			}
 			_lastState = currentState;
 
+			// Native GCD queuing must not wait for the ability press cadence.
+			if (ActionUpdater.NextAction is IBaseAction { Info.IsRealGCD: true })
+			{
+				return isGCD;
+			}
+
 			if (DateTime.Now - _lastClickTime < _clickDelay)
 			{
 				return false;
 			}
-
-			_lastClickTime = DateTime.Now;
-			_clickDelay = RandomSeconds(Service.Config.ClickingDelay.X, Service.Config.ClickingDelay.Y);
 
 			if (!isGCD && DataCenter.DefaultGCDRemain <= 0.5f && DataCenter.DefaultGCDRemain > 0f)
 			{
@@ -83,7 +86,7 @@ namespace RotationSolver.Commands
 				return;
 			}
 
-			if (DataCenter.AnimationLock > 0f)
+			if (DataCenter.AnimationLock > 0f && !ActionUpdater.CanQueueGcd(nextAction))
 			{
 				return;
 			}
@@ -142,7 +145,9 @@ namespace RotationSolver.Commands
 
 			if (DataCenter.TryUseWithinWeaveLimit(nextAction))
 			{
-
+				// Rejected submissions must not postpone the next eligible attempt.
+				_lastClickTime = DateTime.Now;
+				_clickDelay = RandomSeconds(Service.Config.ClickingDelay.X, Service.Config.ClickingDelay.Y);
 				_lastActionID = nextAction.AdjustedID;
 				_lastUsedTime = DateTime.Now;
 

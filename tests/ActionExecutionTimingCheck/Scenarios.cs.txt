@@ -1,0 +1,186 @@
+public static class Scenarios
+{
+    static int checks, failures;
+    static readonly BindingFlags Flags = BindingFlags.Static | BindingFlags.NonPublic;
+    static FieldInfo Click => typeof(RSCommands).GetField("_lastClickTime", Flags)!;
+    static void Check(string name, bool condition)
+    {
+        checks++;
+        if (!condition) { Console.Error.WriteLine("FAIL " + name); failures++; }
+    }
+    static void Reset(bool gcd = true)
+    {
+        Clock.Now = new(2026, 10, 29, 20, 0, 0);
+        Player.Object = new();
+        DataCenter.State = true;
+        DataCenter.IsTargetOnly = DataCenter.IsPvP = DataCenter.IsInQuestBattle = false;
+        DataCenter.AnimationLock = 0;
+        DataCenter.DefaultGCDRemain = .1f;
+        DataCenter.CalculatedActionAhead = .375f;
+        DataCenter.NativeCalls = 0;
+        DataCenter.NativeAccepted = true;
+        DataCenter.WeaveBlocked = false;
+        DataCenter.BMRSpecialModeType = SpecialMode.None;
+        DataCenter.CurrentInterceptedAction = null;
+        Svc.Condition.Active.Clear();
+        StatusHelper.Active.Clear();
+        NoCastingStatusHelper.Active = false;
+        Service.Config.ClickingDelay = new(.1f, .1f);
+        ActionUpdater.NextAction = new BaseAction { Info = new() { IsRealGCD = gcd, IsAbility = !gcd } };
+        ActionUpdater.NextGCDAction = ActionUpdater.NextAction as IBaseAction;
+        Click.SetValue(null, DateTime.MinValue);
+        typeof(RSCommands).GetField("_lastState", Flags)!.SetValue(null, true);
+        unsafe { ActionManager.Instance()->ActionQueued = false; ActionManager.Instance()->QueuedActionId = 0; }
+    }
+    static void Frame() { if (ActionUpdater.CanDoAction()) RSCommands.DoAction(); }
+    public static int Run()
+    {
+        Reset();
+        DataCenter.DefaultGCDRemain = .6f;
+        Check("early GCD evaluation cannot execute", !ActionUpdater.CanDoAction());
+        Check("early GCD evaluation leaves press cadence untouched", (DateTime)Click.GetValue(null)! == DateTime.MinValue);
+        DataCenter.DefaultGCDRemain = .1f;
+        Check("GCD entering queue window admitted on first frame", ActionUpdater.CanDoAction());
+
+        Reset();
+        Click.SetValue(null, Clock.Now.AddSeconds(10));
+        Check("ready GCD is independent of ability click cadence", ActionUpdater.CanDoAction());
+
+        Reset();
+        DataCenter.AnimationLock = .2f;
+        Frame();
+        Check("ordinary GCD reaches native queue during short lock", DataCenter.NativeCalls == 1);
+
+        Reset();
+        DataCenter.AnimationLock = .6f;
+        Frame();
+        Check("GCD outside animation queue horizon waits", DataCenter.NativeCalls == 0);
+
+        Reset();
+        DataCenter.CalculatedActionAhead = .625f;
+        DataCenter.AnimationLock = .501f;
+        Frame();
+        Check("normal GCD queue horizon cannot exceed native half-second cap", DataCenter.NativeCalls == 0);
+
+        Reset();
+        DataCenter.CalculatedActionAhead = .625f;
+        DataCenter.AnimationLock = .5f;
+        Frame();
+        Check("native half-second queue boundary is inclusive", DataCenter.NativeCalls == 1);
+
+        Reset();
+        DataCenter.AnimationLock = .375f;
+        Frame();
+        Check("configured short queue boundary is inclusive", DataCenter.NativeCalls == 1);
+
+        Reset();
+        DataCenter.AnimationLock = .376f;
+        Frame();
+        Check("configured short queue boundary is respected", DataCenter.NativeCalls == 0);
+
+        Reset();
+        DataCenter.AnimationLock = .2f;
+        DataCenter.DefaultGCDRemain = .6f;
+        Frame();
+        Check("GCD outside cooldown queue window waits", DataCenter.NativeCalls == 0);
+
+        Reset();
+        DataCenter.AnimationLock = .2f;
+        ((BaseAction)ActionUpdater.NextAction!).TargetInfo.IsTargetArea = true;
+        Frame();
+        Check("ground-target action retains animation lock", DataCenter.NativeCalls == 0);
+
+        Reset(false);
+        DataCenter.DefaultGCDRemain = 1f;
+        DataCenter.AnimationLock = .2f;
+        Frame();
+        Check("ability retains animation lock", DataCenter.NativeCalls == 0);
+
+        Reset(false);
+        DataCenter.DefaultGCDRemain = 1f;
+        DataCenter.NativeAccepted = false;
+        Frame();
+        Check("rejected native action was attempted", DataCenter.NativeCalls == 1);
+        Check("rejected native action leaves press cadence untouched", (DateTime)Click.GetValue(null)! == DateTime.MinValue);
+
+        Reset(false);
+        DataCenter.DefaultGCDRemain = 1f;
+        Frame();
+        Check("accepted native ability consumes cadence", DataCenter.NativeCalls == 1 && (DateTime)Click.GetValue(null)! != DateTime.MinValue);
+        Frame();
+        Check("accepted ability cannot immediately retry", DataCenter.NativeCalls == 1);
+        Clock.Now = Clock.Now.AddMilliseconds(99);
+        Frame();
+        Check("accepted ability retains its configured 100ms cadence at 99ms", DataCenter.NativeCalls == 1);
+        Clock.Now = Clock.Now.AddMilliseconds(1);
+        Frame();
+        Check("accepted ability may retry exactly at configured cadence", DataCenter.NativeCalls == 2);
+
+        Reset(false);
+        DataCenter.DefaultGCDRemain = 1f;
+        DataCenter.NativeAccepted = false;
+        Frame(); Frame();
+        Check("rejected ability may retry on the next scheduler frame", DataCenter.NativeCalls == 2);
+
+        Reset();
+        Player.Object!.TotalCastTime = 2.5f;
+        Player.Object.CurrentCastTime = 2.3f;
+        Frame();
+        Check("GCD can queue near the end of a cast", DataCenter.NativeCalls == 1);
+
+        Reset();
+        Player.Object!.TotalCastTime = 2.5f;
+        Player.Object.CurrentCastTime = 1f;
+        Frame();
+        Check("GCD cannot interrupt a cast outside queue window", DataCenter.NativeCalls == 0);
+
+        Reset();
+        DataCenter.CalculatedActionAhead = .625f;
+        Player.Object!.TotalCastTime = 2.5f;
+        Player.Object.CurrentCastTime = 1.9f;
+        Frame();
+        Check("cast queue window also respects native half-second cap", DataCenter.NativeCalls == 0);
+
+        Reset(false);
+        DataCenter.DefaultGCDRemain = 1f;
+        Player.Object!.TotalCastTime = 2.5f;
+        Player.Object.CurrentCastTime = 2.3f;
+        Frame();
+        Check("ability cannot enter final cast window", DataCenter.NativeCalls == 0);
+
+        Reset();
+        ((BaseAction)ActionUpdater.NextAction!).TargetInfo.IsTargetArea = true;
+        Player.Object!.TotalCastTime = 2.5f;
+        Player.Object.CurrentCastTime = 2.3f;
+        Frame();
+        Check("ground-target action cannot enter final cast window", DataCenter.NativeCalls == 0);
+
+        Reset();
+        unsafe { ActionManager.Instance()->ActionQueued = true; ActionManager.Instance()->QueuedActionId = 999; }
+        Frame();
+        Check("different manual queue is preserved", DataCenter.NativeCalls == 0);
+
+        Reset();
+        unsafe { ActionManager.Instance()->ActionQueued = true; ActionManager.Instance()->QueuedActionId = ActionUpdater.NextAction!.AdjustedID; }
+        Frame();
+        Check("same-ID queued action retains existing admission behavior", DataCenter.NativeCalls == 1);
+
+        foreach (var status in new[] { StatusID.MotionTracker, StatusID.Transcendent, StatusID.WaningNocturne })
+        {
+            Reset(); StatusHelper.Active.Add(status); Frame();
+            Check("special lockout preserved " + status, DataCenter.NativeCalls == 0);
+        }
+        Reset(); DataCenter.BMRSpecialModeType = SpecialMode.Pyretic; Frame();
+        Check("Pyretic lockout preserved", DataCenter.NativeCalls == 0);
+        Reset(); NoCastingStatusHelper.Active = true; Frame();
+        Check("no-casting resolution lockout preserved", DataCenter.NativeCalls == 0);
+        Reset(); DataCenter.WeaveBlocked = true; Frame();
+        Check("reserved utility or weave hold preserved", DataCenter.NativeCalls == 0);
+        Reset(); DataCenter.IsTargetOnly = true; Frame();
+        Check("target-only mode cannot execute", DataCenter.NativeCalls == 0);
+        Reset(); Player.Object!.CurrentHp = 0; Frame();
+        Check("dead player cannot execute", DataCenter.NativeCalls == 0);
+        Console.WriteLine($"Action execution timing: {checks - failures}/{checks} checks passed.");
+        return failures == 0 ? 0 : 1;
+    }
+}
