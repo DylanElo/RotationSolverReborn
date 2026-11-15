@@ -1102,8 +1102,11 @@ Check("Blast Arrow is checked before Resonant Arrow", true,
 	brdGcdCalls.IndexOf("get_BlastArrowPvE") >= 0 && brdGcdCalls.IndexOf("get_BlastArrowPvE") < brdGcdCalls.IndexOf("get_ResonantArrowPvE"));
 Check("padding stops every GCD", 0, brdGcdCalls.IndexOf("get_PaddingFatebreaker"));
 var hyperchargeCalls = CalledMethods(rotationType.GetProperty("ShouldUseHypercharge", BindingFlags.Instance | BindingFlags.NonPublic)!.GetMethod!).ToList();
-Check("Hypercharge banks only once the HP check is met, not when it is predicted", true,
-	hyperchargeCalls.Contains("get_BankingTools") && !hyperchargeCalls.Contains("get_ObjectiveBanked"));
+// The phase-push policy added on October 24 banks Heat before the check is met.
+Check("Hypercharge banks Heat for a predicted phase push", true,
+	hyperchargeCalls.Contains("get_ObjectiveBanked") && !hyperchargeCalls.Contains("get_BankingTools"));
+Check("Hypercharge considers capped Heat and remaining payload time before banking", true,
+	hyperchargeCalls.Contains("get_Heat") && hyperchargeCalls.Contains("get_TargetTimeLeft"));
 foreach (var name in new[] { "GeneralGCD", "EmergencyAbility", "AttackAbility" })
 	Check($"MCH padding gates {name} first", 0,
 		CalledMethods(rotationType.GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)!).ToList().IndexOf("get_PaddingFatebreaker"));
